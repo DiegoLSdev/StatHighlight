@@ -1,0 +1,9 @@
+## Interface: 16001
+## Title: StatHighlight
+## Notes: Resalta las estadísticas y cantidades de los consumibles en los tooltips. Menú: /shl
+## Author: DLS
+## Version: 1.0.0
+## X-Game: WoW Forever
+## SavedVariables: StatHighlightDB
+
+StatHighlight.lua

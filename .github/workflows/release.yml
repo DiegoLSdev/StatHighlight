@@ -1,0 +1,75 @@
+name: Release
+
+# Se ejecuta solo al subir una etiqueta de versión (v1.0.0, v2.0.0, ...)
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# Por defecto, ningún permiso; se conceden solo al job que los necesita.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Empaquetar y publicar
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write   # necesario para crear la Release y subir el zip
+    env:
+      ADDON: StatHighlight
+      TAG: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        # actions/checkout v4.2.2 fijado por SHA (protección frente a cambios en la etiqueta)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Validar etiqueta y versión del .toc
+        run: |
+          set -euo pipefail
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::La etiqueta '$TAG' no tiene el formato vX.Y.Z"
+            exit 1
+          fi
+          TOC_VERSION=$(grep -E '^## Version:' "$ADDON.toc" | sed -E 's/^## Version:[[:space:]]*//' | tr -d '\r[:space:]')
+          if [ "v$TOC_VERSION" != "$TAG" ]; then
+            echo "::error::La etiqueta ($TAG) no coincide con '## Version: $TOC_VERSION' del .toc"
+            exit 1
+          fi
+
+      - name: Crear zip (carpeta StatHighlight/ dentro)
+        run: |
+          set -euo pipefail
+          mkdir -p "build/$ADDON"
+          cp "$ADDON.toc" "$ADDON.lua" LEEME.txt LICENSE "build/$ADDON/"
+          cd build
+          zip -r -X "../$ADDON-$TAG.zip" "$ADDON"
+          cd ..
+          echo "Contenido del zip:"
+          unzip -l "$ADDON-$TAG.zip"
+          # Comprobación: todo debe estar dentro de StatHighlight/ y el .toc debe existir
+          if unzip -Z1 "$ADDON-$TAG.zip" | grep -v "^$ADDON/"; then
+            echo "::error::Hay archivos fuera de la carpeta $ADDON/"
+            exit 1
+          fi
+          unzip -Z1 "$ADDON-$TAG.zip" | grep -qx "$ADDON/$ADDON.toc"
+          sha256sum "$ADDON-$TAG.zip" > "$ADDON-$TAG.zip.sha256"
+          cat "$ADDON-$TAG.zip.sha256"
+
+      - name: Publicar Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" \
+            "$ADDON-$TAG.zip" "$ADDON-$TAG.zip.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$ADDON $TAG" \
+            --generate-notes \
+            --verify-tag

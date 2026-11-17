@@ -1,0 +1,73 @@
+StatHighlight - WoW Forever
+Version 1.0.0
+
+QUE HACE
+Resalta en color el nombre de una estadistica y la cantidad asociada en las
+lineas de texto de los tooltips de objetos (por defecto, solo consumibles:
+comida, pociones, elixires, pergaminos...). No cambia objetos ni habilidades.
+
+Ejemplo: "Restaura 530 p. de salud ... ganaras 6 p. de aguante y espiritu"
+         -> se resaltan "530 p. de salud", "6 p. de aguante" y "espiritu".
+
+ESTADISTICAS RECONOCIDAS (espanol e ingles)
+Salud, mana, ira/energia, aguante, espiritu, fuerza, agilidad, intelecto,
+todos los atributos, armadura, defensa, poder de ataque, poder/dano con
+hechizos, curacion, dano (y absorcion de dano), regeneracion, resistencias,
+golpe critico, indice de golpe, celeridad/velocidad de ataque, velocidad de
+movimiento, esquivar/parada/bloqueo, pericia/maestria/penetracion,
+habilidad de profesion (pesca...) y experiencia.
+
+MENU Y COMANDOS
+/shl                abre o cierra el menu de opciones
+/shl on | off       activa o desactiva el resaltado
+/shl color RRGGBB   cambia el color general (ejemplo: /shl color ffd24a)
+/shl reset          restablece todas las opciones
+/shl debug          escribe en el chat el texto de cada tooltip (para
+                    enviar si alguna linea no se resalta)
+/stathighlight      igual que /shl
+
+Nota: /sh no se puede usar porque WoW ya lo usa para gritar (/yell).
+
+En el menu:
+- "Activado" y "Solo consumibles".
+- Color general: clic en el cuadro de color.
+- Cada estadistica tiene una casilla para activarla o desactivarla y su
+  propio cuadro de color: clic = color propio, clic derecho = volver al
+  color general.
+Las opciones se guardan entre sesiones.
+
+INSTALACION (Windows)
+1. Cierra WoW Forever.
+2. Abre la carpeta de instalacion del juego.
+3. Entra en: _forever_\Interface\AddOns\
+4. Copia la carpeta completa "StatHighlight" dentro de AddOns.
+   Debe quedar asi:
+   _forever_\Interface\AddOns\StatHighlight\StatHighlight.toc
+   _forever_\Interface\AddOns\StatHighlight\StatHighlight.lua
+5. Abre el juego. En la pantalla de seleccion de personaje, entra en AddOns
+   y comprueba que StatHighlight esta activado.
+6. Entra con tu personaje y pasa el raton por encima de una comida o pocion.
+
+Si cambia el .toc, cierra el juego por
+completo y vuelve a abrirlo; /reload no basta para leer el .toc nuevo.
+Para cambios solo en el .lua suele bastar /reload.
+
+NOTAS
+- Preparado para WoW Forever 1.60.1 (Interface 16001), no para Classic Era.
+  Si el juego marca el addon como "desactualizado", activa la opcion
+  "Cargar addons desactualizados" en la lista de AddOns.
+- Si una linea no se resalta, escribe /shl debug, pasa el raton por el
+  objeto y envia una captura del chat.
+
+CAMBIOS
+1.0.0
+- Primera version publica.
+- Resalta salud, mana, atributos, resistencias, dano, velocidad, habilidad
+  de profesion, experiencia y el resto de estadisticas de consumibles, en
+  espanol e ingles. Reconoce rangos ("70 a 90 p.") y porcentajes ("un 5%").
+- Estadisticas encadenadas: en "6 p. de aguante y espiritu" se resaltan
+  las dos.
+- Menu /shl con color general y color propio por estadistica.
+- Opcion "Solo consumibles" (activada por defecto).
+- Opciones guardadas entre sesiones.
+- Modo depuracion: /shl debug.

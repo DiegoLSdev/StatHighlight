@@ -1,0 +1,7 @@
+# Mantiene actualizadas (y fijadas por SHA) las acciones de GitHub usadas en los workflows
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

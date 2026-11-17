@@ -1,0 +1,35 @@
+# Artefactos de build / release
+build/
+dist/
+*.zip
+
+# Variables guardadas del juego (nunca deben ir al repo: contienen datos de tu cuenta/personajes)
+WTF/
+SavedVariables/
+*.bak
+*.old
+
+# Secretos y configuración local
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+secrets*
+
+# Editores e IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema operativo
+Thumbs.db
+desktop.ini
+ehthumbs.db
+.DS_Store
+
+# Claude Code (configuración local)
+.claude/settings.local.json
