@@ -1,91 +1,92 @@
 # StatHighlight
 
-Addon para **WoW Forever** (1.60.1, Interface 16001) que resalta en color el nombre de una estadística, la cantidad asociada y la duración del efecto en los tooltips de objetos: consumibles (comida, pociones, elixires, pergaminos…) y objetos que se echan a la hoguera o tienen un efecto de uso. No modifica objetos ni habilidades.
+An addon for **WoW Forever** (1.60.1, Interface 16001) that highlights the name of a stat, its amount and the duration of the effect in item tooltips: consumables (food, potions, elixirs, scrolls…) and items that are thrown into a bonfire or have a "Use:" effect. It does not change items or abilities.
 
-> Ejemplo: *"Restaura 530 p. de salud … ganarás 6 p. de aguante y espíritu durante 15 min"*
-> → se resaltan **530 p. de salud**, **6 p. de aguante** y **espíritu** (dorado) y **15 min** (azul claro).
+> Example: *"Restores 530 health … you gain 6 Stamina and Spirit for 15 min"*
+> → **530 health**, **6 Stamina** and **Spirit** are highlighted in gold, and **15 min** in light blue.
 
-## Descarga e instalación
+The options window is in English, or in Spanish if your game client is Spanish. Item text is recognised in both English and Spanish.
 
-1. Descarga `StatHighlight-vX.Y.Z.zip` desde la página de [Releases](../../releases/latest).
-2. Cierra WoW Forever.
-3. Descomprime el zip dentro de `_forever_\Interface\AddOns\`. Debe quedar así:
+## Download and install
+
+1. Download `StatHighlight-vX.Y.Z.zip` from the [Releases](../../releases/latest) page.
+2. Close WoW Forever.
+3. Extract the zip into `_forever_\Interface\AddOns\`. It must look like this:
 
    ```
    _forever_\Interface\AddOns\StatHighlight\StatHighlight.toc
    _forever_\Interface\AddOns\StatHighlight\StatHighlight.lua
    ```
 
-   > ⚠️ No descargues el botón verde **Code → Download ZIP**: ese zip crea una carpeta `StatHighlight-main` y el juego no la reconoce. Usa siempre el zip de *Releases*.
+   > ⚠️ Do not use the green **Code → Download ZIP** button: that zip creates a `StatHighlight-main` folder that the game does not recognise. Always use the zip from *Releases*.
 
-4. Abre el juego. En la selección de personaje, entra en **AddOns** y comprueba que StatHighlight está activado.
-5. Entra con tu personaje y pasa el ratón por encima de una comida o poción.
+4. Start the game. On the character select screen, open **AddOns** and make sure StatHighlight is enabled.
+5. Log in and hover over some food or a potion.
 
-Si el juego marca el addon como *desactualizado*, activa la opción **Cargar addons desactualizados** en la lista de AddOns.
+If the game marks the addon as *out of date*, enable **Load out of date AddOns** in the AddOns list.
 
-## Estadísticas reconocidas (español e inglés)
+## Recognised stats (English and Spanish)
 
-Salud, maná, ira/energía, aguante, espíritu, fuerza, agilidad, intelecto, todos los atributos, armadura, defensa, poder de ataque, poder/daño con hechizos, curación, daño (y absorción de daño), regeneración, resistencias, golpe crítico, índice de golpe, celeridad/velocidad de ataque, velocidad de movimiento, esquivar/parada/bloqueo, pericia/maestría/penetración, habilidad de profesión (pesca…) y experiencia.
+Health, mana, rage/energy, stamina, spirit, strength, agility, intellect, all stats, armor, defense, attack power, spell power/damage, healing, damage (and damage absorption), regeneration, resistances, critical strike, hit, haste/attack speed, movement speed, dodge/parry/block, expertise/mastery/penetration, profession skill (fishing…) and experience.
 
-## Menú y comandos
+## Options and commands
 
-| Comando | Descripción |
+| Command | Description |
 |---|---|
-| `/shl` | Abre o cierra el menú de opciones |
-| `/shl on` \| `off` | Activa o desactiva el resaltado |
-| `/shl color RRGGBB` | Cambia el color general (ejemplo: `/shl color ffd24a`) |
-| `/shl reset` | Restablece todas las opciones |
-| `/shl debug` | Escribe en el chat el texto de cada tooltip (útil si alguna línea no se resalta) |
-| `/stathighlight` | Igual que `/shl` |
+| `/shl` | Open or close the options window |
+| `/shl on` \| `off` | Enable or disable highlighting |
+| `/shl color RRGGBB` | Change the general color (example: `/shl color ffd24a`) |
+| `/shl reset` | Reset all options |
+| `/shl debug` | Print the text of every tooltip to chat (useful if a line is not highlighted) |
+| `/stathighlight` | Same as `/shl` |
 
-> `/sh` no se puede usar porque WoW ya lo usa para gritar (`/yell`).
+> `/sh` cannot be used because WoW already uses it for `/yell`.
 
-El menú tiene cuatro secciones:
+The options window has four sections:
 
-- **General**: *Activado*, *Color general* (clic en el cuadro) y *Restablecer todo*.
-- **Dónde resaltar**:
-  - *Consumibles*: comida, bebida, pociones, elixires, pergaminos… (activado).
-  - *Hoguera y otros objetos con efecto*: objetos con una línea "Usar:" o que se echan a la hoguera (activado).
-  - *Equipo*: armas y armaduras (desactivado).
-- **Duración del efecto**: resalta *"durante 30 min"*, *"1 h 30 min"*, *"10 s"*… con su propio color (azul claro por defecto; clic derecho para volver a él). No resalta tiempos de reutilización ni intervalos como *"cada 5 s"*.
-- **Estadísticas**: cada una tiene una casilla para activarla o desactivarla y su propio cuadro de color: **clic** = color propio, **clic derecho** = volver al color general.
+- **General**: *Enabled*, *General color* (click the color box) and *Reset all*.
+- **Where to highlight**:
+  - *Consumables*: food, drink, potions, elixirs, scrolls… (on).
+  - *Bonfire and other items with an effect*: items with a "Use:" line or that are thrown into a bonfire (on).
+  - *Gear*: weapons and armor (off).
+- **Effect duration**: highlights *"for 30 min"*, *"1 h 30 min"*, *"10 sec"*… in its own color (light blue by default; right-click to go back to it). Cooldowns and intervals such as *"every 5 sec"* are not highlighted.
+- **Stats**: each stat has a checkbox and its own color box: **click** = own color, **right-click** = back to the general color.
 
-Pasa el ratón por encima de cualquier opción para ver una explicación.
+Hover over any option to see an explanation. Options are saved between sessions (`StatHighlightDB`).
 
-Las opciones se guardan entre sesiones (`StatHighlightDB`).
+## Notes
 
-## Notas
+- Made for WoW Forever 1.60.1 (Interface 16001), not for Classic Era.
+- If the `.toc` changes, close the game completely and start it again; `/reload` does not read a new `.toc`. For changes to the `.lua` only, `/reload` is usually enough.
+- If a line is not highlighted, type `/shl debug`, hover over the item and open an [issue](../../issues) with a screenshot of the chat.
 
-- Preparado para WoW Forever 1.60.1 (Interface 16001), no para Classic Era.
-- Si cambia el `.toc`, cierra el juego por completo y vuelve a abrirlo; `/reload` no basta para leer el `.toc` nuevo. Para cambios solo en el `.lua` suele bastar `/reload`.
-- Si una línea no se resalta, escribe `/shl debug`, pasa el ratón por el objeto y abre un [issue](../../issues) con una captura del chat.
-
-## Cambios
+## Changelog
 
 ### 1.1.0
 
-- Resalta también los objetos que se echan a la hoguera y otros objetos con efecto de uso.
-- Pergaminos: reconoce frases como *"Aumenta el Intelecto del objetivo 8 p."*.
-- Nuevo: resaltado de la duración del efecto (*"30 min"*, *"1 h 30 min"*…) con color configurable.
-- Menú reorganizado en secciones: General, Dónde resaltar, Duración y Estadísticas.
-- La opción *Solo consumibles* se sustituye por *Consumibles / Hoguera y otros / Equipo*; tus opciones anteriores se conservan.
+- Also highlights items that are thrown into a bonfire and other items with a "Use:" effect.
+- Scrolls: recognises text such as *"Increases the target's Intellect by 8"* and *"Aumenta el Intelecto del objetivo 8 p."*.
+- New: effect durations (*"30 min"*, *"1 h 30 min"*…) are highlighted in a color you can change.
+- Options window reorganised into sections: General, Where to highlight, Effect duration and Stats.
+- Interface in English, or in Spanish on Spanish clients.
+- *Consumables only* is replaced by *Consumables / Bonfire and other / Gear*; your previous settings are kept.
 
 ### 1.0.0
 
-- Primera versión pública.
-- Resalta salud, maná, atributos, resistencias, daño, velocidad, habilidad de profesión, experiencia y el resto de estadísticas de consumibles, en español e inglés. Reconoce rangos (*"70 a 90 p."*) y porcentajes (*"un 5%"*).
-- Estadísticas encadenadas: en *"6 p. de aguante y espíritu"* se resaltan las dos.
-- Menú `/shl` con color general y color propio por estadística.
-- Opción **Solo consumibles** (activada por defecto).
-- Opciones guardadas entre sesiones.
-- Modo depuración: `/shl debug`.
+- First public release.
+- Highlights health, mana, attributes, resistances, damage, speed, profession skill, experience and the other consumable stats, in Spanish and English. Recognises ranges (*"70 to 90"*) and percentages (*"5%"*).
+- Chained stats: in *"6 Stamina and Spirit"* both are highlighted.
+- `/shl` options with a general color and a color per stat.
+- *Consumables only* option (on by default).
+- Options saved between sessions.
+- Debug mode: `/shl debug`.
 
-## Publicar una versión (mantenimiento)
+## Releasing a version (maintenance)
 
-1. Actualiza `## Version:` en `StatHighlight.toc` y la sección *Cambios*.
-2. Crea y sube una etiqueta con el mismo número: `git tag v1.2.3 && git push origin v1.2.3`.
-3. La acción de GitHub ejecuta las pruebas (`tests/run.lua`), comprueba que la etiqueta coincide con el `.toc`, genera `StatHighlight-v1.2.3.zip` (con la carpeta `StatHighlight/` dentro) y lo publica como Release.
+1. Update `## Version:` in `StatHighlight.toc` and the *Changelog* section.
+2. Create and push a tag with the same number: `git tag v1.2.3 && git push origin v1.2.3`.
+3. The GitHub Action runs the tests (`tests/run.lua`), checks that the tag matches the `.toc`, builds `StatHighlight-v1.2.3.zip` (with the `StatHighlight/` folder inside) and publishes it as a Release.
 
-## Licencia
+## License
 
 [MIT](LICENSE) © DLS

@@ -1,7 +1,7 @@
-# Seguridad
+# Security
 
-StatHighlight es un addon de interfaz que solo lee el texto de los tooltips del juego. No usa red, no envía mensajes de chat ni de addon, y solo guarda sus opciones en `StatHighlightDB`.
+StatHighlight is an interface addon that only reads the text of the game's tooltips. It does not use the network, does not send chat or addon messages, and only stores its options in `StatHighlightDB`.
 
-Descarga el addon **solo** desde la página de [Releases](../../releases) de este repositorio. Cada Release incluye un archivo `.sha256` para comprobar que el zip no ha sido modificado.
+Only download the addon from this repository's [Releases](../../releases) page. Each Release includes a `.sha256` file so you can check that the zip has not been modified.
 
-Si encuentras un problema de seguridad, avisa de forma privada mediante **Security → Report a vulnerability** en este repositorio, en lugar de abrir un issue público.
+If you find a security problem, report it privately through **Security → Report a vulnerability** in this repository instead of opening a public issue.

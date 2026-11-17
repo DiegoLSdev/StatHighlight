@@ -1,11 +1,107 @@
 -- StatHighlight - WoW Forever 1.60.1
--- Resalta el nombre de una estadistica y la cantidad que aumenta dentro
--- de las lineas de descripcion de los tooltips de objetos.
--- Menu de opciones: /shl  (o /stathighlight)
+-- Highlights stat names, their amounts and effect durations in item
+-- tooltips (Spanish and English item text).
+-- Options menu: /shl  (or /stathighlight)
 
 local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "StatHighlight"
 ns = ns or {}
+
+------------------------------------------------------------------------
+-- Interface language: English by default, Spanish on Spanish clients.
+-- (Stat detection always understands both languages.)
+------------------------------------------------------------------------
+local LOCALE = (GetLocale and GetLocale()) or "enUS"
+local IS_SPANISH = LOCALE == "esES" or LOCALE == "esMX"
+
+local L = {
+    LOADED = "loaded. Type /shl to open the options.",
+    ENABLED_MSG = "enabled.",
+    DISABLED_MSG = "disabled.",
+    COLOR_CHANGED = "general color changed to %s.",
+    COLOR_USAGE = "usage: /shl color RRGGBB  (example: /shl color ffd24a)",
+    RESET_MSG = "options reset.",
+    DEBUG_ON = "debug mode enabled: hover over an item.",
+    DEBUG_OFF = "debug mode disabled.",
+    DEBUG_HEADER = "tooltip=%s item=%s classID=%s",
+    HELP_TITLE = "commands:",
+    HELP_MENU = "  /shl  - open or close the options",
+    HELP_ONOFF = "  /shl on | off  - enable or disable",
+    HELP_COLOR = "  /shl color RRGGBB  - general color",
+    HELP_RESET = "  /shl reset  - reset all options",
+    HELP_DEBUG = "  /shl debug  - print tooltip text to chat",
+
+    SECTION_GENERAL = "General",
+    ENABLED = "Enabled",
+    GENERAL_COLOR = "General color:",
+    GENERAL_COLOR_HELP = "Color for every stat that has no color of its own.",
+    RESET_ALL = "Reset all",
+
+    SECTION_WHERE = "Where to highlight",
+    TYPE_CONSUMABLE = "Consumables",
+    TYPE_CONSUMABLE_HELP = "Food, drink, potions, elixirs, scrolls, bandages...",
+    TYPE_OTHER = "Bonfire and other items with an effect",
+    TYPE_OTHER_HELP = "Items that are not consumables but have a \"Use:\" line or are thrown into a bonfire for a buff.",
+    TYPE_GEAR = "Gear",
+    TYPE_GEAR_HELP = "Weapons and armor (bonuses such as \"+10 Stamina\"). Off by default.",
+
+    SECTION_DURATION = "Effect duration",
+    DURATION_CHECK = "Highlight durations  (for 30 min, 1 h, 10 sec...)",
+    DURATION_TITLE = "Durations",
+    DURATION_HELP = "Highlights how long the effect lasts. Cooldowns and intervals (\"every 5 sec\") are not highlighted.",
+    DURATION_COLOR_TITLE = "Duration color",
+    DURATION_COLOR_HELP = "Click: choose a color.\nRight-click: back to the default color (light blue).",
+
+    SECTION_STATS = "Stats",
+    STATS_HINT = "Checkbox: enable.  Color box: click = own color, right-click = general color.",
+    STAT_OWN_COLOR = "Has its own color.",
+    STAT_GENERAL_COLOR = "Uses the general color.",
+    STAT_COLOR_HELP = "\nClick: choose its own color.\nRight-click: back to the general color.",
+}
+
+if IS_SPANISH then
+    L.LOADED = "cargado. Escribe /shl para abrir el menú."
+    L.ENABLED_MSG = "activado."
+    L.DISABLED_MSG = "desactivado."
+    L.COLOR_CHANGED = "color general cambiado a %s."
+    L.COLOR_USAGE = "uso: /shl color RRGGBB  (ejemplo: /shl color ffd24a)"
+    L.RESET_MSG = "opciones restablecidas."
+    L.DEBUG_ON = "modo depuración activado: pasa el ratón por un objeto."
+    L.DEBUG_OFF = "modo depuración desactivado."
+    L.DEBUG_HEADER = "tooltip=%s objeto=%s classID=%s"
+    L.HELP_TITLE = "comandos:"
+    L.HELP_MENU = "  /shl  - abrir o cerrar el menú"
+    L.HELP_ONOFF = "  /shl on | off  - activar o desactivar"
+    L.HELP_COLOR = "  /shl color RRGGBB  - color general"
+    L.HELP_RESET = "  /shl reset  - restablecer opciones"
+    L.HELP_DEBUG = "  /shl debug  - mostrar el texto de los tooltips en el chat"
+
+    L.ENABLED = "Activado"
+    L.GENERAL_COLOR = "Color general:"
+    L.GENERAL_COLOR_HELP = "Color para todas las estadísticas que no tengan uno propio."
+    L.RESET_ALL = "Restablecer todo"
+
+    L.SECTION_WHERE = "Dónde resaltar"
+    L.TYPE_CONSUMABLE = "Consumibles"
+    L.TYPE_CONSUMABLE_HELP = "Comida, bebida, pociones, elixires, pergaminos, vendas..."
+    L.TYPE_OTHER = "Hoguera y otros objetos con efecto"
+    L.TYPE_OTHER_HELP = "Objetos que no son consumibles pero tienen una línea \"Usar:\" o se echan a la hoguera para obtener un beneficio."
+    L.TYPE_GEAR = "Equipo"
+    L.TYPE_GEAR_HELP = "Armas y armaduras (bonificaciones como \"+10 Aguante\"). Desactivado por defecto."
+
+    L.SECTION_DURATION = "Duración del efecto"
+    L.DURATION_CHECK = "Resaltar duraciones  (durante 30 min, 1 h, 10 s...)"
+    L.DURATION_TITLE = "Duraciones"
+    L.DURATION_HELP = "Resalta cuánto dura el efecto. No resalta tiempos de reutilización ni intervalos (\"cada 5 s\")."
+    L.DURATION_COLOR_TITLE = "Color de las duraciones"
+    L.DURATION_COLOR_HELP = "Clic: elegir color.\nClic derecho: volver al color por defecto (azul claro)."
+
+    L.SECTION_STATS = "Estadísticas"
+    L.STATS_HINT = "Casilla: activar.  Cuadro de color: clic = color propio, clic derecho = color general."
+    L.STAT_OWN_COLOR = "Tiene color propio."
+    L.STAT_GENERAL_COLOR = "Usa el color general."
+    L.STAT_COLOR_HELP = "\nClic: elegir color propio.\nClic derecho: volver al color general."
+end
 
 local MAX_GAP = 45 -- bytes maximos entre el nombre y la cantidad
 
@@ -15,77 +111,77 @@ local MAX_GAP = 45 -- bytes maximos entre el nombre y la cantidad
 -- Los nombres van en minusculas (con y sin tildes, y en ingles).
 ------------------------------------------------------------------------
 local CATEGORIES = {
-    { key = "health", label = "Salud", names = {
+    { key = "health", label = "Health", es = "Salud", names = {
         "salud", "salud máxima", "salud maxima", "puntos de salud",
         "health", "max health", "maximum health" } },
-    { key = "mana", label = "Maná", names = {
+    { key = "mana", label = "Mana", es = "Maná", names = {
         "maná", "mana", "maná máximo", "mana maximo", "puntos de maná",
         "maximum mana" } },
-    { key = "power", label = "Ira / energía", names = {
+    { key = "power", label = "Rage / energy", es = "Ira / energía", names = {
         "ira", "energía", "energia", "rage", "energy" } },
-    { key = "stamina", label = "Aguante", names = { "aguante", "stamina" } },
-    { key = "spirit", label = "Espíritu", names = { "espíritu", "espiritu", "spirit" } },
-    { key = "strength", label = "Fuerza", names = { "fuerza", "strength" } },
-    { key = "agility", label = "Agilidad", names = { "agilidad", "agility" } },
-    { key = "intellect", label = "Intelecto", names = { "intelecto", "intellect" } },
-    { key = "allstats", label = "Todos los atributos", names = {
+    { key = "stamina", label = "Stamina", es = "Aguante", names = { "aguante", "stamina" } },
+    { key = "spirit", label = "Spirit", es = "Espíritu", names = { "espíritu", "espiritu", "spirit" } },
+    { key = "strength", label = "Strength", es = "Fuerza", names = { "fuerza", "strength" } },
+    { key = "agility", label = "Agility", es = "Agilidad", names = { "agilidad", "agility" } },
+    { key = "intellect", label = "Intellect", es = "Intelecto", names = { "intelecto", "intellect" } },
+    { key = "allstats", label = "All stats", es = "Todos los atributos", names = {
         "todos los atributos", "todas las estadísticas", "todas las estadisticas",
         "todas tus estadísticas", "todas tus estadisticas", "todos tus atributos",
         "all stats", "all attributes" } },
-    { key = "armor", label = "Armadura", names = {
+    { key = "armor", label = "Armor", es = "Armadura", names = {
         "armadura", "valor de armadura", "armor", "armour" } },
-    { key = "defense", label = "Defensa", names = {
+    { key = "defense", label = "Defense", es = "Defensa", names = {
         "defensa", "índice de defensa", "indice de defensa", "habilidad de defensa",
         "defense", "defense rating", "defense skill" } },
-    { key = "attackpower", label = "Poder de ataque", names = {
+    { key = "attackpower", label = "Attack power", es = "Poder de ataque", names = {
         "poder de ataque", "poder de ataque a distancia",
         "attack power", "ranged attack power" } },
-    { key = "spellpower", label = "Poder con hechizos", names = {
+    { key = "spellpower", label = "Spell power", es = "Poder con hechizos", names = {
         "poder con hechizos", "poder de hechizo", "poder de hechizos",
         "daño con hechizos", "daño de hechizos", "daño mágico", "daño magico",
         "daño y curación", "daño y curacion", "daño y sanación",
         "spell power", "spell damage", "damage and healing", "healing and damage" } },
-    { key = "healing", label = "Curación", names = {
+    { key = "healing", label = "Healing", es = "Curación", names = {
         "curación", "curacion", "sanación", "sanacion", "healing" } },
-    { key = "damage", label = "Daño", names = {
+    { key = "damage", label = "Damage", es = "Daño", names = {
         "daño", "daño de fuego", "daño de escarcha", "daño de sombras",
         "daño de naturaleza", "daño arcano", "daño físico", "daño fisico",
         "damage", "fire damage", "frost damage", "shadow damage",
         "nature damage", "arcane damage", "physical damage" } },
-    { key = "regen", label = "Regeneración", names = {
+    { key = "regen", label = "Regeneration", es = "Regeneración", names = {
         "regeneración de maná", "regeneracion de mana",
         "regeneración de salud", "regeneracion de salud",
         "mana regeneration", "health regeneration" } },
-    { key = "resist", label = "Resistencias", names = {
+    { key = "resist", label = "Resistances", es = "Resistencias", names = {
         "resistencia al fuego", "resistencia a la escarcha", "resistencia a la naturaleza",
         "resistencia a las sombras", "resistencia a la sombra", "resistencia arcana",
         "resistencia a lo arcano", "todas las resistencias", "resistencia a todo",
         "resistencias", "resistencia",
         "fire resistance", "frost resistance", "nature resistance",
         "shadow resistance", "arcane resistance", "all resistances", "resistance" } },
-    { key = "crit", label = "Golpe crítico", names = {
+    { key = "crit", label = "Critical strike", es = "Golpe crítico", names = {
         "golpe crítico", "golpe critico", "índice de golpe crítico", "indice de golpe critico",
         "golpe crítico con hechizos", "golpe critico con hechizos",
         "probabilidad de golpe crítico", "probabilidad de golpe critico",
         "critical strike", "critical strike rating", "critical strike chance",
         "crit rating", "crit" } },
-    { key = "hit", label = "Índice de golpe", names = {
+    { key = "hit", label = "Hit", es = "Índice de golpe", names = {
         "índice de golpe", "indice de golpe", "probabilidad de golpe",
         "índice de golpe con hechizos", "indice de golpe con hechizos",
         "hit rating", "hit chance", "chance to hit" } },
-    { key = "haste", label = "Celeridad / vel. ataque", names = {
+    { key = "haste", label = "Haste / attack speed", es = "Celeridad / vel. ataque", names = {
         "celeridad", "índice de celeridad", "indice de celeridad",
         "velocidad de ataque", "velocidad de lanzamiento",
         "haste", "haste rating", "attack speed", "casting speed" } },
-    { key = "speed", label = "Velocidad de movimiento", names = {
+    { key = "speed", label = "Movement speed", es = "Velocidad de movimiento", names = {
         "velocidad de movimiento", "velocidad de carrera", "velocidad de nado",
         "velocidad", "movement speed", "run speed", "swim speed" } },
-    { key = "avoidance", label = "Esquivar / parada / bloqueo", names = {
+    { key = "avoidance", label = "Dodge / parry / block", es = "Esquivar / parada / bloqueo", names = {
         "esquivar", "índice de esquivar", "indice de esquivar",
         "parada", "parar", "índice de parada", "indice de parada",
         "bloqueo", "bloquear", "índice de bloqueo", "indice de bloqueo",
         "valor de bloqueo", "dodge", "parry", "block", "block value" } },
-    { key = "expertise", label = "Pericia / maestría / otros", names = {
+    { key = "expertise", label = "Expertise / mastery / other", es = "Pericia / maestría / otros", names = {
         "pericia", "índice de pericia", "indice de pericia",
         "maestría", "maestria", "índice de maestría", "indice de maestria",
         "penetración de armadura", "penetracion de armadura",
@@ -93,13 +189,13 @@ local CATEGORIES = {
         "temple", "resiliencia",
         "expertise", "mastery", "mastery rating", "armor penetration",
         "spell penetration", "resilience" } },
-    { key = "skill", label = "Habilidad de profesión", names = {
+    { key = "skill", label = "Profession skill", es = "Habilidad de profesión", names = {
         "habilidad en pesca", "habilidad de pesca", "pesca",
         "habilidad en herboristería", "habilidad en herboristeria", "herboristería",
         "habilidad en minería", "habilidad en mineria", "minería",
         "habilidad en desuello", "desuello",
         "fishing", "fishing skill", "herbalism", "mining", "skinning" } },
-    { key = "experience", label = "Experiencia", names = {
+    { key = "experience", label = "Experience", es = "Experiencia", names = {
         "experiencia", "experience" } },
 }
 
@@ -111,6 +207,11 @@ for _, cat in ipairs(CATEGORIES) do
     end
 end
 table.sort(NAME_LIST, function(a, b) return #a.name > #b.name end)
+
+-- Stat names shown in the menu follow the interface language.
+if IS_SPANISH then
+    for _, cat in ipairs(CATEGORIES) do cat.label = cat.es or cat.label end
+end
 
 local function MakeSet(list)
     local set = {}
@@ -651,8 +752,8 @@ local function DebugDump(tooltip, item, classID, regions)
     local key = tostring(item) .. "#" .. table.concat(lines, "\n")
     if key == lastDebugKey then return end
     lastDebugKey = key
-    print("|cffffd24a[StatHighlight debug]|r tooltip=" .. tostring(tooltip.GetName and tooltip:GetName())
-        .. " objeto=" .. tostring(item) .. " classID=" .. tostring(classID))
+    print("|cffffd24a[StatHighlight debug]|r " .. string.format(L.DEBUG_HEADER,
+        tostring(tooltip.GetName and tooltip:GetName()), tostring(item), tostring(classID)))
     for i, t in ipairs(lines) do
         print("  " .. i .. ": " .. string.gsub(t, "|", "||"))
     end
@@ -843,9 +944,9 @@ local function CreateOptionsFrame()
     title:SetText("StatHighlight")
 
     -- 1) General ---------------------------------------------------------
-    CreateSection(f, "General", -32)
+    CreateSection(f, L.SECTION_GENERAL, -32)
 
-    local enabled = CreateCheck(f, "Activado")
+    local enabled = CreateCheck(f, L.ENABLED)
     enabled:SetPoint("TOPLEFT", 16, -50)
     enabled:SetScript("OnClick", function(self)
         db.enabled = self:GetChecked() and true or false
@@ -854,7 +955,7 @@ local function CreateOptionsFrame()
 
     local generalLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     generalLabel:SetPoint("TOPLEFT", 150, -55)
-    generalLabel:SetText("Color general:")
+    generalLabel:SetText(L.GENERAL_COLOR)
 
     local generalSwatch = CreateSwatch(f)
     generalSwatch:SetPoint("LEFT", generalLabel, "RIGHT", 8, 0)
@@ -868,28 +969,28 @@ local function CreateOptionsFrame()
             OnSettingsChanged()
         end)
     end)
-    AttachHelp(generalSwatch, "Color general", "Color para todas las estadísticas que no tengan uno propio.")
+    AttachHelp(generalSwatch, L.GENERAL_COLOR, L.GENERAL_COLOR_HELP)
 
     local resetButton = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     resetButton:SetSize(120, 22)
     resetButton:SetPoint("TOPRIGHT", -20, -50)
-    resetButton:SetText("Restablecer todo")
+    resetButton:SetText(L.RESET_ALL)
     resetButton:SetScript("OnClick", function()
         ResetDB()
         OnSettingsChanged()
-        print("|cffffd24aStatHighlight|r: opciones restablecidas.")
+        print("|cffffd24aStatHighlight|r: " .. L.RESET_MSG)
     end)
 
     -- 2) Donde resaltar --------------------------------------------------
-    CreateSection(f, "Dónde resaltar", -84)
+    CreateSection(f, L.SECTION_WHERE, -84)
 
     local TYPE_OPTIONS = {
-        { key = "consumable", x = 16, label = "Consumibles",
-          help = "Comida, bebida, pociones, elixires, pergaminos, vendas..." },
-        { key = "other", x = 150, label = "Hoguera y otros objetos con efecto",
-          help = "Objetos que no son consumibles pero tienen una línea \"Usar:\" o se echan a la hoguera para obtener un beneficio." },
-        { key = "gear", x = 420, label = "Equipo",
-          help = "Armas y armaduras (bonificaciones como \"+10 Aguante\"). Desactivado por defecto." },
+        { key = "consumable", x = 16, label = L.TYPE_CONSUMABLE,
+          help = L.TYPE_CONSUMABLE_HELP },
+        { key = "other", x = 150, label = L.TYPE_OTHER,
+          help = L.TYPE_OTHER_HELP },
+        { key = "gear", x = 420, label = L.TYPE_GEAR,
+          help = L.TYPE_GEAR_HELP },
     }
     local typeChecks = {}
     for _, opt in ipairs(TYPE_OPTIONS) do
@@ -904,16 +1005,15 @@ local function CreateOptionsFrame()
     end
 
     -- 3) Duraciones ------------------------------------------------------
-    CreateSection(f, "Duración del efecto", -136)
+    CreateSection(f, L.SECTION_DURATION, -136)
 
-    local durationCheck = CreateCheck(f, "Resaltar duraciones  (durante 30 min, 1 h, 10 s...)")
+    local durationCheck = CreateCheck(f, L.DURATION_CHECK)
     durationCheck:SetPoint("TOPLEFT", 16, -154)
     durationCheck:SetScript("OnClick", function(self)
         StatSettings(DURATION_KEY).enabled = self:GetChecked() and true or false
         OnSettingsChanged()
     end)
-    AttachHelp(durationCheck, "Duraciones",
-        "Resalta cuánto dura el efecto. No resalta tiempos de reutilización ni intervalos (\"cada 5 s\").")
+    AttachHelp(durationCheck, L.DURATION_TITLE, L.DURATION_HELP)
 
     local durationSwatch = CreateSwatch(f)
     durationSwatch:SetPoint("LEFT", durationCheck.label, "RIGHT", 10, 0)
@@ -933,15 +1033,14 @@ local function CreateOptionsFrame()
             OnSettingsChanged()
         end)
     end)
-    AttachHelp(durationSwatch, "Color de las duraciones",
-        "Clic: elegir color.\nClic derecho: volver al color por defecto (azul claro).")
+    AttachHelp(durationSwatch, L.DURATION_COLOR_TITLE, L.DURATION_COLOR_HELP)
 
     -- 4) Estadisticas ----------------------------------------------------
-    CreateSection(f, "Estadísticas", -188)
+    CreateSection(f, L.SECTION_STATS, -188)
 
     local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     hint:SetPoint("TOPLEFT", 20, -206)
-    hint:SetText("Casilla: activar.  Cuadro de color: clic = color propio, clic derecho = color general.")
+    hint:SetText(L.STATS_HINT)
 
     local rows = {}
     local perColumn = math.ceil(#CATEGORIES / 2)
@@ -978,8 +1077,8 @@ local function CreateOptionsFrame()
         end)
         swatch:SetScript("OnEnter", function(self)
             local s = db.stats[cat.key]
-            local which = (s and s.color) and "Tiene color propio." or "Usa el color general."
-            ShowHelpTooltip(self, cat.label, which .. "\nClic: elegir color propio.\nClic derecho: volver al color general.")
+            local which = (s and s.color) and L.STAT_OWN_COLOR or L.STAT_GENERAL_COLOR
+            ShowHelpTooltip(self, cat.label, which .. L.STAT_COLOR_HELP)
         end)
         swatch:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
@@ -1043,11 +1142,11 @@ SlashCmdList["STATHIGHLIGHT"] = function(msg)
     elseif cmd == "on" then
         db.enabled = true
         OnSettingsChanged()
-        Print("activado.")
+        Print(L.ENABLED_MSG)
     elseif cmd == "off" then
         db.enabled = false
         OnSettingsChanged()
-        Print("desactivado.")
+        Print(L.DISABLED_MSG)
     elseif cmd == "color" then
         local hex = string.match(arg or "", "^#?(%x%x%x%x%x%x)$")
         if hex then
@@ -1057,25 +1156,25 @@ SlashCmdList["STATHIGHLIGHT"] = function(msg)
                 b = tonumber(string.sub(hex, 5, 6), 16) / 255,
             }
             OnSettingsChanged()
-            Print("color general cambiado a " .. ColorCode(db.color) .. hex .. "|r.")
+            Print(string.format(L.COLOR_CHANGED, ColorCode(db.color) .. hex .. "|r"))
         else
-            Print("uso: /shl color RRGGBB  (ejemplo: /shl color ffd24a)")
+            Print(L.COLOR_USAGE)
         end
     elseif cmd == "reset" then
         ResetDB()
         OnSettingsChanged()
-        Print("opciones restablecidas.")
+        Print(L.RESET_MSG)
     elseif cmd == "debug" then
         db.debug = not db.debug
         lastDebugKey = nil
-        Print("modo depuración " .. (db.debug and "activado: pasa el ratón por un objeto." or "desactivado."))
+        Print(db.debug and L.DEBUG_ON or L.DEBUG_OFF)
     else
-        Print("comandos:")
-        print("  /shl  - abrir o cerrar el menú")
-        print("  /shl on | off  - activar o desactivar")
-        print("  /shl color RRGGBB  - color general")
-        print("  /shl reset  - restablecer opciones")
-        print("  /shl debug  - mostrar el texto de los tooltips en el chat")
+        Print(L.HELP_TITLE)
+        print(L.HELP_MENU)
+        print(L.HELP_ONOFF)
+        print(L.HELP_COLOR)
+        print(L.HELP_RESET)
+        print(L.HELP_DEBUG)
     end
 end
 
@@ -1088,12 +1187,13 @@ loader:SetScript("OnEvent", function(self, event, name)
     if name == ADDON_NAME then
         InitDB()
         self:UnregisterEvent("ADDON_LOADED")
-        Print("cargado. Escribe /shl para abrir el menú.")
+        Print(L.LOADED)
     end
 end)
 
--- Acceso interno para las pruebas automaticas (tests/). No afecta al juego.
+-- Internal access for the automated tests (tests/). Not used in game.
 ns.InitDB = InitDB
 ns.FindAllSpans = FindAllSpans
 ns.BuildHighlighted = BuildHighlighted
 ns.ItemAllowed = ItemAllowed
+ns.L = L

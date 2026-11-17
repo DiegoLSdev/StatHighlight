@@ -14,16 +14,16 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout
-        # actions/checkout v4.2.2 fijado por SHA
+        # actions/checkout v4.2.2 pinned by SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
 
-      - name: Instalar Lua 5.1 (la versión de WoW)
+      - name: Install Lua 5.1 (the version WoW uses)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
 
-      - name: Comprobar sintaxis
+      - name: Check syntax
         run: luac5.1 -p StatHighlight.lua
 
-      - name: Ejecutar pruebas
+      - name: Run tests
         run: lua5.1 tests/run.lua

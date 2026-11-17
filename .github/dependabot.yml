@@ -1,4 +1,4 @@
-# Mantiene actualizadas (y fijadas por SHA) las acciones de GitHub usadas en los workflows
+# Keeps the GitHub Actions used by the workflows up to date (pinned by SHA)
 version: 2
 updates:
   - package-ecosystem: "github-actions"

@@ -1,12 +1,12 @@
 name: Release
 
-# Se ejecuta solo al subir una etiqueta de versión (v1.0.0, v2.0.0, ...)
+# Runs only when a version tag is pushed (v1.0.0, v2.0.0, ...)
 on:
   push:
     tags:
       - "v*.*.*"
 
-# Por defecto, ningún permiso; se conceden solo al job que los necesita.
+# No permissions by default; granted only to the job that needs them.
 permissions: {}
 
 concurrency:
@@ -15,60 +15,60 @@ concurrency:
 
 jobs:
   release:
-    name: Empaquetar y publicar
+    name: Package and publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write   # necesario para crear la Release y subir el zip
+      contents: write   # needed to create the Release and upload the zip
     env:
       ADDON: StatHighlight
       TAG: ${{ github.ref_name }}
     steps:
       - name: Checkout
-        # actions/checkout v4.2.2 fijado por SHA (protección frente a cambios en la etiqueta)
+        # actions/checkout v4.2.2 pinned by SHA (protects against tag changes)
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
 
-      - name: Validar etiqueta y versión del .toc
+      - name: Check tag and .toc version
         run: |
           set -euo pipefail
           if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::La etiqueta '$TAG' no tiene el formato vX.Y.Z"
+            echo "::error::Tag '$TAG' is not in vX.Y.Z format"
             exit 1
           fi
           TOC_VERSION=$(grep -E '^## Version:' "$ADDON.toc" | sed -E 's/^## Version:[[:space:]]*//' | tr -d '\r[:space:]')
           if [ "v$TOC_VERSION" != "$TAG" ]; then
-            echo "::error::La etiqueta ($TAG) no coincide con '## Version: $TOC_VERSION' del .toc"
+            echo "::error::Tag ($TAG) does not match '## Version: $TOC_VERSION' in the .toc"
             exit 1
           fi
 
-      - name: Ejecutar pruebas
+      - name: Run tests
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
           luac5.1 -p "$ADDON.lua"
           lua5.1 tests/run.lua
 
-      - name: Crear zip (carpeta StatHighlight/ dentro)
+      - name: Build zip (StatHighlight/ folder inside)
         run: |
           set -euo pipefail
           mkdir -p "build/$ADDON"
-          cp "$ADDON.toc" "$ADDON.lua" LEEME.txt LICENSE "build/$ADDON/"
+          cp "$ADDON.toc" "$ADDON.lua" README.txt LICENSE "build/$ADDON/"
           cd build
           zip -r -X "../$ADDON-$TAG.zip" "$ADDON"
           cd ..
-          echo "Contenido del zip:"
+          echo "Zip contents:"
           unzip -l "$ADDON-$TAG.zip"
-          # Comprobación: todo debe estar dentro de StatHighlight/ y el .toc debe existir
+          # Check: everything must be inside StatHighlight/ and the .toc must exist
           if unzip -Z1 "$ADDON-$TAG.zip" | grep -v "^$ADDON/"; then
-            echo "::error::Hay archivos fuera de la carpeta $ADDON/"
+            echo "::error::There are files outside the $ADDON/ folder"
             exit 1
           fi
           unzip -Z1 "$ADDON-$TAG.zip" | grep -qx "$ADDON/$ADDON.toc"
           sha256sum "$ADDON-$TAG.zip" > "$ADDON-$TAG.zip.sha256"
           cat "$ADDON-$TAG.zip.sha256"
 
-      - name: Publicar Release
+      - name: Publish Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

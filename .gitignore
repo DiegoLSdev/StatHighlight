@@ -1,15 +1,15 @@
-# Artefactos de build / release
+# Build / release artifacts
 build/
 dist/
 *.zip
 
-# Variables guardadas del juego (nunca deben ir al repo: contienen datos de tu cuenta/personajes)
+# Game saved variables (never commit them: they contain account/character data)
 WTF/
 SavedVariables/
 *.bak
 *.old
 
-# Secretos y configuración local
+# Secrets and local configuration
 .env
 .env.*
 *.pem
@@ -18,18 +18,18 @@ SavedVariables/
 *.p12
 secrets*
 
-# Editores e IDEs
+# Editors and IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# Sistema operativo
+# Operating system
 Thumbs.db
 desktop.ini
 ehthumbs.db
 .DS_Store
 
-# Claude Code (configuración local)
+# Claude Code (local settings)
 .claude/settings.local.json
