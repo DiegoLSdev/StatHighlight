@@ -103,12 +103,12 @@ if IS_SPANISH then
     L.STAT_COLOR_HELP = "\nClic: elegir color propio.\nClic derecho: volver al color general."
 end
 
-local MAX_GAP = 45 -- bytes maximos entre el nombre y la cantidad
+local MAX_GAP = 45 -- max bytes between a stat name and its amount
 
 ------------------------------------------------------------------------
--- Categorias de estadisticas
--- Cada categoria se puede activar/desactivar y tener su propio color.
--- Los nombres van en minusculas (con y sin tildes, y en ingles).
+-- Stat categories
+-- Each category can be turned on/off and have its own color.
+-- Names are lowercase (with and without accents, Spanish and English).
 ------------------------------------------------------------------------
 local CATEGORIES = {
     { key = "health", label = "Health", es = "Salud", names = {
@@ -199,7 +199,7 @@ local CATEGORIES = {
         "experiencia", "experience" } },
 }
 
--- Lista plana de nombres, de mas largo a mas corto.
+-- Flat list of names, longest first.
 local NAME_LIST = {}
 for _, cat in ipairs(CATEGORIES) do
     for _, name in ipairs(cat.names) do
@@ -219,15 +219,15 @@ local function MakeSet(list)
     return set
 end
 
--- Palabras que pueden ir entre la cantidad y el nombre: "6 p. de tu aguante".
+-- Words allowed between an amount and the name: "6 p. de tu aguante".
 local CONNECTORS = MakeSet({
     "de", "del", "tu", "su", "tus", "sus", "el", "la", "los", "las",
     "a", "al", "en", "your", "of", "the" })
 
--- Palabras permitidas entre el nombre y una cantidad que va detras:
+-- Words allowed between the name and an amount that comes after it:
 -- "aguante aumentará 12 p.", "Stamina by 12", "experiencia obtenida al
--- matar enemigos aumenta un 5%". Si aparece otra palabra (p. ej. "durante"),
--- el numero no pertenece a la estadistica.
+-- matar enemigos aumenta un 5%". Any other word (e.g. "durante"/"for")
+-- means the number does not belong to the stat.
 local GAP_WORDS = MakeSet({
     "en", "de", "del", "a", "al", "un", "una", "se", "tu", "su", "el", "la",
     "los", "las", "y", "e", "hasta",
@@ -239,7 +239,7 @@ local GAP_WORDS = MakeSet({
     "by", "to", "of", "is", "are", "up", "your", "the", "and",
     "increase", "increases", "increased", "gained", "from", "killing",
     "monsters", "enemies",
-    -- A quien afecta: "Aumenta el Intelecto del objetivo en 8 p.",
+    -- Who is affected: "Aumenta el Intelecto del objetivo en 8 p.",
     -- "Increases the target's Intellect by 8", "de los miembros del grupo cercanos".
     "objetivo", "objetivos", "aliado", "aliados", "lanzador", "usuario",
     "jugador", "jugadores", "personaje", "miembro", "miembros", "grupo",
@@ -249,9 +249,9 @@ local GAP_WORDS = MakeSet({
     "players", "allied" })
 
 ------------------------------------------------------------------------
--- Duraciones: "durante 30 min", "1 h 30 min", "for 10 sec"...
+-- Durations: "durante 30 min", "1 h 30 min", "for 10 sec"...
 ------------------------------------------------------------------------
--- Unidades de tiempo, de mas larga a mas corta (minusculas).
+-- Time units, longest first (lowercase).
 local TIME_UNITS = {
     "segundos", "segundo", "minutos", "minuto", "horas", "hora",
     "días", "dias", "día", "dia",
@@ -259,35 +259,35 @@ local TIME_UNITS = {
     "secs", "sec", "seg", "mins", "min", "hrs", "hr", "s", "h",
 }
 
--- Si justo antes del numero aparece una de estas palabras no es una
--- duracion sino un intervalo: "5 p. de maná cada 5 s", "every 5 sec".
+-- If one of these words comes right before the number it is an interval,
+-- not a duration: "5 p. de maná cada 5 s", "every 5 sec".
 local INTERVAL_WORDS = MakeSet({ "cada", "every", "per", "por" })
 
--- Si poco antes aparece una de estas, es un tiempo de reutilizacion.
+-- If one of these appears shortly before, it is a cooldown.
 local COOLDOWN_WORDS = { "reutilización", "reutilizacion", "recarga", "cooldown" }
 
--- Palabras que unen dos estadisticas: "aguante y espíritu", "Stamina and Spirit".
+-- Words that join two stats: "aguante y espíritu", "Stamina and Spirit".
 local CHAIN_WORDS = MakeSet({
     "y", "e", "and", "tu", "su", "el", "la", "los", "las", "your", "&" })
 
 ------------------------------------------------------------------------
--- Opciones guardadas
+-- Saved options
 ------------------------------------------------------------------------
-local DEFAULT_COLOR = { r = 1, g = 0.824, b = 0.290 }      -- ffd24a dorado
-local DURATION_COLOR = { r = 0.400, g = 0.800, b = 1 }      -- 66ccff azul claro
+local DEFAULT_COLOR = { r = 1, g = 0.824, b = 0.290 }      -- ffd24a gold
+local DURATION_COLOR = { r = 0.400, g = 0.800, b = 1 }      -- 66ccff light blue
 local DURATION_KEY = "duration"
 
-local db -- StatHighlightDB tras cargar
+local db -- StatHighlightDB once loaded
 local settingsVersion = 1
 
 local function CopyColor(c) return { r = c.r, g = c.g, b = c.b } end
 
--- Donde se resalta, por tipo de objeto.
+-- Where to highlight, by item type.
 local function DefaultTypes()
     return {
-        consumable = true, -- comida, pociones, elixires, pergaminos...
-        other = true,      -- objetos de hoguera y otros con efecto de uso
-        gear = false,      -- armas y armaduras
+        consumable = true, -- food, potions, elixirs, scrolls...
+        other = true,      -- bonfire items and others with a Use: effect
+        gear = false,      -- weapons and armor
     }
 end
 
@@ -312,7 +312,7 @@ local function InitDB()
     if db.enabled == nil then db.enabled = true end
     if type(db.types) ~= "table" then
         db.types = DefaultTypes()
-        -- Version 1.0.0: "Solo consumibles" desactivado = resaltar en todo.
+        -- Version 1.0.0: "Consumables only" turned off = highlight everything.
         if db.consumablesOnly == false then db.types.gear = true end
     end
     db.consumablesOnly = nil
@@ -349,11 +349,11 @@ local function ColorCode(c)
 end
 
 ------------------------------------------------------------------------
--- Deteccion de texto
+-- Text detection
 ------------------------------------------------------------------------
 
--- string.lower no convierte mayusculas acentuadas (UTF-8). Cada pareja ocupa
--- los mismos bytes, asi que las posiciones del texto original coinciden.
+-- string.lower does not lowercase accented capitals (UTF-8). Each pair has
+-- the same byte length, so positions in the original text still match.
 local UPPER_ACCENTS = {
     ["Á"] = "á", ["É"] = "é", ["Í"] = "í", ["Ó"] = "ó",
     ["Ú"] = "ú", ["Ü"] = "ü", ["Ñ"] = "ñ",
@@ -367,7 +367,7 @@ local function Normalize(text)
     return lower
 end
 
--- Letra ASCII o byte de un caracter UTF-8 (letras acentuadas).
+-- ASCII letter or a byte of a UTF-8 character (accented letters).
 local function IsLetterByte(b)
     if not b then return false end
     return b >= 128 or (b >= 65 and b <= 90) or (b >= 97 and b <= 122)
@@ -378,7 +378,7 @@ local function IsSpace(text, pos)
     return c == " " or c == "\t" or c == "\n" or c == "\r"
 end
 
--- Comprueba que todas las palabras del hueco esten en la lista permitida.
+-- Checks that every word in the gap is in the allowed list.
 local function GapWordsAllowed(gapLower, allowed)
     local cleaned = string.gsub(gapLower, "[:,;%(%)%+]", " ")
     for word in string.gmatch(cleaned, "%S+") do
@@ -387,8 +387,8 @@ local function GapWordsAllowed(gapLower, allowed)
     return true
 end
 
--- Cantidad delante del nombre: "15 p. de aguante", "70 a 90 p. de salud",
--- "530 health", "+10 Aguante". Devuelve la posicion inicial.
+-- Amount before the name: "15 p. de aguante", "70 a 90 p. de salud",
+-- "530 health", "+10 Aguante". Returns the start position.
 local function FindAmountBefore(text, lowerText, s)
     local pos = s - 1
     local function trim()
@@ -396,7 +396,7 @@ local function FindAmountBefore(text, lowerText, s)
     end
     trim()
 
-    -- Hasta dos palabras de union ("de tu").
+    -- Up to two joining words ("de tu").
     for _ = 1, 2 do
         local prefix = string.sub(lowerText, 1, pos)
         local w1 = string.find(prefix, "[%a\128-\255]+$")
@@ -408,7 +408,7 @@ local function FindAmountBefore(text, lowerText, s)
         end
     end
 
-    -- "p." o "puntos" opcionales.
+    -- Optional "p.", "puntos" or "points".
     local prefix = string.sub(lowerText, 1, pos)
     if string.sub(prefix, -2) == "p." and not IsLetterByte(string.byte(prefix, #prefix - 2)) then
         pos = pos - 2
@@ -426,7 +426,7 @@ local function FindAmountBefore(text, lowerText, s)
     local start = string.find(prefix, "%d[%d%.,]*$")
     if not start then return end
 
-    -- Rango: "70 a 90", "70 to 90", "70-90".
+    -- Range: "70 a 90", "70 to 90", "70-90".
     local pre = string.sub(lowerText, 1, start - 1)
     local r1 = string.find(pre, "%d[%d%.,]*%s+a%s+$")
         or string.find(pre, "%d[%d%.,]*%s+to%s+$")
@@ -439,13 +439,13 @@ local function FindAmountBefore(text, lowerText, s)
     return start
 end
 
--- Cantidad detras del nombre: "aguante 15 p.", "Stamina by 12",
--- "espíritu: 10", "experiencia ... aumenta un 5%". Devuelve la posicion final.
+-- Amount after the name: "aguante 15 p.", "Stamina by 12",
+-- "espíritu: 10", "experiencia ... aumenta un 5%". Returns the end position.
 local function FindAmountAfter(text, lowerText, e)
     local after = string.sub(text, e + 1, e + MAX_GAP + 25)
     local gap, number = string.match(after, "^([^%d]-)(%d[%d%.,]*)")
     if not gap or gap == "" or #gap > MAX_GAP then return end
-    -- No cruzar un final de frase ni un codigo de escape (|c, |T, |H...).
+    -- Do not cross the end of a sentence or an escape code (|c, |T, |H...).
     if string.find(gap, "[%.|]") then return end
     if not GapWordsAllowed(string.sub(lowerText, e + 1, e + #gap), GAP_WORDS) then return end
 
@@ -468,11 +468,11 @@ local function FindAmountAfter(text, lowerText, e)
     return finish + #suffix
 end
 
--- Devuelve una lista de tramos { inicio, fin, categoria } sin solaparse.
+-- Returns a list of non-overlapping spans { start, end, category }.
 local function FindStatSpans(text)
     local lowerText = Normalize(text)
 
-    -- 1) Localiza todos los nombres (los largos tienen prioridad).
+    -- 1) Find every name (longer names win).
     local occ = {}
     for _, entry in ipairs(NAME_LIST) do
         local from = 1
@@ -496,7 +496,7 @@ local function FindStatSpans(text)
     if #occ == 0 then return {} end
     table.sort(occ, function(a, b) return a.s < b.s end)
 
-    -- 2) Busca la cantidad de cada nombre (delante o detras).
+    -- 2) Find the amount of each name (before or after it).
     local candidates = {}
     for _, o in ipairs(occ) do
         if IsCategoryEnabled(o.key) then
@@ -526,7 +526,7 @@ local function FindStatSpans(text)
         end
     end
 
-    -- 3) Estadisticas encadenadas sin cantidad propia:
+    -- 3) Chained stats without their own amount:
     --    "6 p. de aguante y espíritu", "tu aguante y tu espíritu aumentarán 12 p."
     local changed = true
     while changed do
@@ -560,12 +560,12 @@ local function FindStatSpans(text)
     return spans
 end
 
--- "30 min", "10 s", "1 hora": numero + unidad de tiempo que empieza en pos.
--- Devuelve la posicion final o nil.
+-- "30 min", "10 s", "1 hora": number + time unit starting at pos.
+-- Returns the end position or nil.
 local function MatchTimeAt(lowerText, pos)
     local numStart, numEnd = string.find(lowerText, "^%d[%d%.,]*", pos)
     if not numStart then return end
-    -- "1.5" o "1,5" valen; un punto o coma final no forma parte del numero.
+    -- "1.5" and "1,5" are fine; a trailing dot or comma is not part of the number.
     while string.find(string.sub(lowerText, numEnd, numEnd), "[%.,]") do
         numEnd = numEnd - 1
     end
@@ -580,8 +580,8 @@ local function MatchTimeAt(lowerText, pos)
     end
 end
 
--- Tramos de duracion { inicio, fin, DURATION_KEY } que no pisan los de
--- estadisticas. "1 h 30 min" o "1 h y 30 min" forman un solo tramo.
+-- Duration spans { start, end, DURATION_KEY } that do not overlap the stat
+-- spans. "1 h 30 min" or "1 h y 30 min" form a single span.
 local function FindDurationSpans(text, lowerText, taken)
     local spans = {}
     local from = 1
@@ -593,7 +593,7 @@ local function FindDurationSpans(text, lowerText, taken)
             or (prevByte >= 48 and prevByte <= 57) or prevByte == 46 or prevByte == 44))
         local finish = isWordStart and MatchTimeAt(lowerText, s)
         if finish then
-            -- Encadenar: "1 h 30 min", "1 h y 30 min", "2 min, 30 s".
+            -- Chain: "1 h 30 min", "1 h y 30 min", "2 min, 30 s".
             while true do
                 local link = string.match(string.sub(lowerText, finish + 1), "^%s*,?%s*y?%s*")
                     or ""
@@ -626,7 +626,7 @@ local function FindDurationSpans(text, lowerText, taken)
     return spans
 end
 
--- Estadisticas + duraciones, ordenadas y sin solaparse.
+-- Stats + durations, sorted and non-overlapping.
 local function FindAllSpans(text)
     local spans = FindStatSpans(text)
     if IsCategoryEnabled(DURATION_KEY) and string.find(text, "%d") then
@@ -640,10 +640,10 @@ local function FindAllSpans(text)
 end
 
 ------------------------------------------------------------------------
--- Aplicar color
+-- Applying color
 ------------------------------------------------------------------------
 
--- Color en linea (|cAARRGGBB) que sigue abierto en la posicion pos, si lo hay.
+-- Inline color (|cAARRGGBB) still open at position pos, if any.
 local function ActiveColorAt(text, pos)
     local active
     local i = 1
@@ -671,7 +671,7 @@ local function BuildHighlighted(text, spans)
         parts[#parts + 1] = ColorCode(EffectiveColor(key))
         parts[#parts + 1] = string.sub(text, first, last)
         parts[#parts + 1] = "|r"
-        -- Si la frase ya tenia su propio color, se restaura tras el resaltado.
+        -- If the sentence already had its own color, restore it after the highlight.
         local outer = ActiveColorAt(text, first)
         if outer then parts[#parts + 1] = outer end
         cursor = last + 1
@@ -684,8 +684,8 @@ end
 -- Tooltips
 ------------------------------------------------------------------------
 
--- Cada linea recuerda su texto original y el resaltado que le pusimos,
--- para no aplicar el color dos veces y poder repintar al cambiar opciones.
+-- Each line remembers its original text and the highlight we applied,
+-- so color is never applied twice and lines can be redrawn when options change.
 local originals = setmetatable({}, { __mode = "k" })
 local highlighted = setmetatable({}, { __mode = "k" })
 local regionVersion = setmetatable({}, { __mode = "k" })
@@ -702,7 +702,7 @@ local function GetItemClassID(item)
     local getInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
     if not item or not getInstant then return nil end
     local result = { pcall(getInstant, item) }
-    if result[1] then return result[7] end -- itemID, tipo, subtipo, hueco, icono, classID
+    if result[1] then return result[7] end -- itemID, type, subtype, equip slot, icon, classID
 end
 
 local CONSUMABLE_CLASS = 0
@@ -710,8 +710,8 @@ local WEAPON_CLASS = 2
 local ARMOR_CLASS = 4
 local lastDebugKey
 
--- Textos que indican que un objeto (no consumible) tiene un efecto:
--- linea "Usar:" o que se echa a la hoguera.
+-- Text showing that a (non-consumable) item has an effect:
+-- a "Use:" line, or that it is thrown into a bonfire.
 local EFFECT_MARKERS = {
     "usar:", "use:", "hoguera", "fogata", "fuego de campamento",
     "campfire", "bonfire",
@@ -732,10 +732,10 @@ local function TooltipHasEffect(regions)
     return false
 end
 
--- Decide si se resalta este objeto segun su tipo y las opciones.
+-- Decides whether this item is highlighted, based on its type and the options.
 local function ItemAllowed(classID, regions)
     local types = db.types
-    if classID == nil then return true end -- tipo desconocido: no filtrar
+    if classID == nil then return true end -- unknown type: do not filter
     if classID == CONSUMABLE_CLASS then return types.consumable end
     if classID == WEAPON_CLASS or classID == ARMOR_CLASS then return types.gear end
     return types.other and TooltipHasEffect(regions)
@@ -798,9 +798,9 @@ local function HighlightTooltip(tooltip, data)
     end
 end
 
--- Se engancha de todas las formas disponibles: algunos tooltips (bolsas,
--- vendedor...) no pasan por todas, y la linea "Usar:" a veces llega tarde.
--- Aplicar el resaltado dos veces es seguro.
+-- Hook in every available way: some tooltips (bags, vendor...) do not go
+-- through all of them, and the "Use:" line sometimes arrives late.
+-- Applying the highlight twice is safe.
 local TOOLTIPS = { "GameTooltip", "ItemRefTooltip", "ShoppingTooltip1", "ShoppingTooltip2" }
 
 if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall
@@ -823,7 +823,7 @@ for _, name in ipairs(TOOLTIPS) do
         frame:HookScript("OnShow", function(self)
             if TooltipShowsItem(self) then HighlightTooltip(self) end
         end)
-        -- Repaso cada 0,2 s mientras esta visible (textos que llegan tarde).
+        -- Re-check every 0.2 s while visible (text that arrives late).
         local elapsed = 0
         frame:HookScript("OnUpdate", function(self, dt)
             elapsed = elapsed + (dt or 0)
@@ -835,7 +835,7 @@ for _, name in ipairs(TOOLTIPS) do
 end
 
 ------------------------------------------------------------------------
--- Menu de opciones
+-- Options window
 ------------------------------------------------------------------------
 local optionsFrame
 local RefreshOptions
@@ -905,7 +905,7 @@ local function AttachHelp(widget, title, line)
     widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
--- Titulo de seccion con una linea fina hasta el borde derecho.
+-- Section title with a thin line up to the right edge.
 local function CreateSection(parent, text, y)
     local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     label:SetPoint("TOPLEFT", 16, y)
@@ -937,7 +937,7 @@ local function CreateOptionsFrame()
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:SetClampedToScreen(true)
-    tinsert(UISpecialFrames, "StatHighlightOptionsFrame") -- se cierra con Esc
+    tinsert(UISpecialFrames, "StatHighlightOptionsFrame") -- closes with Esc
 
     local title = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     title:SetPoint("TOP", 0, -6)
@@ -981,7 +981,7 @@ local function CreateOptionsFrame()
         print("|cffffd24aStatHighlight|r: " .. L.RESET_MSG)
     end)
 
-    -- 2) Donde resaltar --------------------------------------------------
+    -- 2) Where to highlight ----------------------------------------------
     CreateSection(f, L.SECTION_WHERE, -84)
 
     local TYPE_OPTIONS = {
@@ -1004,7 +1004,7 @@ local function CreateOptionsFrame()
         typeChecks[opt.key] = check
     end
 
-    -- 3) Duraciones ------------------------------------------------------
+    -- 3) Durations -------------------------------------------------------
     CreateSection(f, L.SECTION_DURATION, -136)
 
     local durationCheck = CreateCheck(f, L.DURATION_CHECK)
@@ -1035,7 +1035,7 @@ local function CreateOptionsFrame()
     end)
     AttachHelp(durationSwatch, L.DURATION_COLOR_TITLE, L.DURATION_COLOR_HELP)
 
-    -- 4) Estadisticas ----------------------------------------------------
+    -- 4) Stats -----------------------------------------------------------
     CreateSection(f, L.SECTION_STATS, -188)
 
     local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -1084,7 +1084,7 @@ local function CreateOptionsFrame()
 
         rows[#rows + 1] = { key = cat.key, check = check, swatch = swatch }
     end
-    -- La fila de duracion se refresca igual que una estadistica.
+    -- The duration row is refreshed like a stat row.
     rows[#rows + 1] = { key = DURATION_KEY, check = durationCheck, swatch = durationSwatch }
 
     RefreshOptions = function()
@@ -1123,8 +1123,8 @@ local function ToggleOptions()
 end
 
 ------------------------------------------------------------------------
--- Comandos
--- Nota: /sh no se puede usar porque WoW ya lo usa para gritar (/yell).
+-- Commands
+-- Note: /sh cannot be used because WoW already uses it for /yell.
 ------------------------------------------------------------------------
 local function Print(msg)
     print("|cffffd24aStatHighlight|r: " .. msg)
@@ -1179,7 +1179,7 @@ SlashCmdList["STATHIGHLIGHT"] = function(msg)
 end
 
 ------------------------------------------------------------------------
--- Carga
+-- Loading
 ------------------------------------------------------------------------
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
