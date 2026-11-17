@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: StatHighlight
-## Notes: Resalta las estadísticas y cantidades de los consumibles en los tooltips. Menú: /shl
+## Notes: Resalta estadísticas, cantidades y duraciones en los tooltips de consumibles y objetos de hoguera. Menú: /shl
 ## Author: DLS
-## Version: 1.0.0
+## Version: 1.1.0
 ## X-Game: WoW Forever
 ## SavedVariables: StatHighlightDB
 

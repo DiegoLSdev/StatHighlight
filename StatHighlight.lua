@@ -3,8 +3,9 @@
 -- de las lineas de descripcion de los tooltips de objetos.
 -- Menu de opciones: /shl  (o /stathighlight)
 
-local ADDON_NAME = ...
+local ADDON_NAME, ns = ...
 ADDON_NAME = ADDON_NAME or "StatHighlight"
+ns = ns or {}
 
 local MAX_GAP = 45 -- bytes maximos entre el nombre y la cantidad
 
@@ -136,7 +137,33 @@ local GAP_WORDS = MakeSet({
     "obtenida", "obtenido", "ganada", "ganado", "matar", "enemigos",
     "by", "to", "of", "is", "are", "up", "your", "the", "and",
     "increase", "increases", "increased", "gained", "from", "killing",
-    "monsters", "enemies" })
+    "monsters", "enemies",
+    -- A quien afecta: "Aumenta el Intelecto del objetivo en 8 p.",
+    -- "Increases the target's Intellect by 8", "de los miembros del grupo cercanos".
+    "objetivo", "objetivos", "aliado", "aliados", "lanzador", "usuario",
+    "jugador", "jugadores", "personaje", "miembro", "miembros", "grupo",
+    "banda", "cercano", "cercanos", "cercanas", "todos", "todas",
+    "target", "target's", "targets", "ally", "allies", "caster", "party",
+    "raid", "member", "members", "nearby", "all", "friendly", "player",
+    "players", "allied" })
+
+------------------------------------------------------------------------
+-- Duraciones: "durante 30 min", "1 h 30 min", "for 10 sec"...
+------------------------------------------------------------------------
+-- Unidades de tiempo, de mas larga a mas corta (minusculas).
+local TIME_UNITS = {
+    "segundos", "segundo", "minutos", "minuto", "horas", "hora",
+    "días", "dias", "día", "dia",
+    "seconds", "second", "minutes", "minute", "hours", "hour", "days", "day",
+    "secs", "sec", "seg", "mins", "min", "hrs", "hr", "s", "h",
+}
+
+-- Si justo antes del numero aparece una de estas palabras no es una
+-- duracion sino un intervalo: "5 p. de maná cada 5 s", "every 5 sec".
+local INTERVAL_WORDS = MakeSet({ "cada", "every", "per", "por" })
+
+-- Si poco antes aparece una de estas, es un tiempo de reutilizacion.
+local COOLDOWN_WORDS = { "reutilización", "reutilizacion", "recarga", "cooldown" }
 
 -- Palabras que unen dos estadisticas: "aguante y espíritu", "Stamina and Spirit".
 local CHAIN_WORDS = MakeSet({
@@ -145,17 +172,28 @@ local CHAIN_WORDS = MakeSet({
 ------------------------------------------------------------------------
 -- Opciones guardadas
 ------------------------------------------------------------------------
-local DEFAULT_COLOR = { r = 1, g = 0.824, b = 0.290 } -- ffd24a dorado
+local DEFAULT_COLOR = { r = 1, g = 0.824, b = 0.290 }      -- ffd24a dorado
+local DURATION_COLOR = { r = 0.400, g = 0.800, b = 1 }      -- 66ccff azul claro
+local DURATION_KEY = "duration"
 
 local db -- StatHighlightDB tras cargar
 local settingsVersion = 1
 
 local function CopyColor(c) return { r = c.r, g = c.g, b = c.b } end
 
+-- Donde se resalta, por tipo de objeto.
+local function DefaultTypes()
+    return {
+        consumable = true, -- comida, pociones, elixires, pergaminos...
+        other = true,      -- objetos de hoguera y otros con efecto de uso
+        gear = false,      -- armas y armaduras
+    }
+end
+
 local function ResetDB()
     StatHighlightDB = {
         enabled = true,
-        consumablesOnly = true,
+        types = DefaultTypes(),
         debug = false,
         color = CopyColor(DEFAULT_COLOR),
         stats = {},
@@ -171,7 +209,12 @@ local function InitDB()
     end
     db = StatHighlightDB
     if db.enabled == nil then db.enabled = true end
-    if db.consumablesOnly == nil then db.consumablesOnly = true end
+    if type(db.types) ~= "table" then
+        db.types = DefaultTypes()
+        -- Version 1.0.0: "Solo consumibles" desactivado = resaltar en todo.
+        if db.consumablesOnly == false then db.types.gear = true end
+    end
+    db.consumablesOnly = nil
     if type(db.color) ~= "table" then db.color = CopyColor(DEFAULT_COLOR) end
     if type(db.stats) ~= "table" then db.stats = {} end
 end
@@ -195,6 +238,7 @@ end
 local function EffectiveColor(key)
     local s = db and db.stats[key]
     if s and s.color then return s.color end
+    if key == DURATION_KEY then return DURATION_COLOR end
     return (db and db.color) or DEFAULT_COLOR
 end
 
@@ -415,6 +459,85 @@ local function FindStatSpans(text)
     return spans
 end
 
+-- "30 min", "10 s", "1 hora": numero + unidad de tiempo que empieza en pos.
+-- Devuelve la posicion final o nil.
+local function MatchTimeAt(lowerText, pos)
+    local numStart, numEnd = string.find(lowerText, "^%d[%d%.,]*", pos)
+    if not numStart then return end
+    -- "1.5" o "1,5" valen; un punto o coma final no forma parte del numero.
+    while string.find(string.sub(lowerText, numEnd, numEnd), "[%.,]") do
+        numEnd = numEnd - 1
+    end
+    local unitPos = numEnd + 1
+    while IsSpace(lowerText, unitPos) do unitPos = unitPos + 1 end
+    for _, unit in ipairs(TIME_UNITS) do
+        local uEnd = unitPos + #unit - 1
+        if string.sub(lowerText, unitPos, uEnd) == unit
+            and not IsLetterByte(string.byte(lowerText, uEnd + 1)) then
+            return uEnd
+        end
+    end
+end
+
+-- Tramos de duracion { inicio, fin, DURATION_KEY } que no pisan los de
+-- estadisticas. "1 h 30 min" o "1 h y 30 min" forman un solo tramo.
+local function FindDurationSpans(text, lowerText, taken)
+    local spans = {}
+    local from = 1
+    while true do
+        local s = string.find(lowerText, "%d", from)
+        if not s then break end
+        local prevByte = s > 1 and string.byte(lowerText, s - 1) or nil
+        local isWordStart = not (prevByte and (IsLetterByte(prevByte)
+            or (prevByte >= 48 and prevByte <= 57) or prevByte == 46 or prevByte == 44))
+        local finish = isWordStart and MatchTimeAt(lowerText, s)
+        if finish then
+            -- Encadenar: "1 h 30 min", "1 h y 30 min", "2 min, 30 s".
+            while true do
+                local link = string.match(string.sub(lowerText, finish + 1), "^%s*,?%s*y?%s*")
+                    or ""
+                local nextStart = finish + #link + 1
+                local nextFinish = #link > 0 and MatchTimeAt(lowerText, nextStart)
+                if not nextFinish then break end
+                finish = nextFinish
+            end
+
+            local before = string.sub(lowerText, math.max(1, s - 45), s - 1)
+            local lastWord = string.match(before, "([%a\128-\255]+)%s*$")
+            local skip = lastWord and INTERVAL_WORDS[lastWord]
+            if not skip then
+                for _, w in ipairs(COOLDOWN_WORDS) do
+                    if string.find(before, w, 1, true) then skip = true break end
+                end
+            end
+            if not skip then
+                for _, t in ipairs(taken) do
+                    if s <= t[2] and finish >= t[1] then skip = true break end
+                end
+            end
+            if not skip then spans[#spans + 1] = { s, finish, DURATION_KEY } end
+            from = finish + 1
+        else
+            local _, numEnd = string.find(lowerText, "^%d[%d%.,]*", s)
+            from = (numEnd or s) + 1
+        end
+    end
+    return spans
+end
+
+-- Estadisticas + duraciones, ordenadas y sin solaparse.
+local function FindAllSpans(text)
+    local spans = FindStatSpans(text)
+    if IsCategoryEnabled(DURATION_KEY) and string.find(text, "%d") then
+        local durations = FindDurationSpans(text, Normalize(text), spans)
+        if #durations > 0 then
+            for _, d in ipairs(durations) do spans[#spans + 1] = d end
+            table.sort(spans, function(a, b) return a[1] < b[1] end)
+        end
+    end
+    return spans
+end
+
 ------------------------------------------------------------------------
 -- Aplicar color
 ------------------------------------------------------------------------
@@ -482,7 +605,40 @@ local function GetItemClassID(item)
 end
 
 local CONSUMABLE_CLASS = 0
+local WEAPON_CLASS = 2
+local ARMOR_CLASS = 4
 local lastDebugKey
+
+-- Textos que indican que un objeto (no consumible) tiene un efecto:
+-- linea "Usar:" o que se echa a la hoguera.
+local EFFECT_MARKERS = {
+    "usar:", "use:", "hoguera", "fogata", "fuego de campamento",
+    "campfire", "bonfire",
+}
+
+local function TooltipHasEffect(regions)
+    for _, region in ipairs(regions) do
+        if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+            local t = region:GetText()
+            if type(t) == "string" and t ~= "" then
+                local lower = Normalize(t)
+                for _, marker in ipairs(EFFECT_MARKERS) do
+                    if string.find(lower, marker, 1, true) then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
+-- Decide si se resalta este objeto segun su tipo y las opciones.
+local function ItemAllowed(classID, regions)
+    local types = db.types
+    if classID == nil then return true end -- tipo desconocido: no filtrar
+    if classID == CONSUMABLE_CLASS then return types.consumable end
+    if classID == WEAPON_CLASS or classID == ARMOR_CLASS then return types.gear end
+    return types.other and TooltipHasEffect(regions)
+end
 
 local function DebugDump(tooltip, item, classID, regions)
     local lines = {}
@@ -512,10 +668,7 @@ local function HighlightTooltip(tooltip, data)
 
     if db.debug then DebugDump(tooltip, item, classID, regions) end
 
-    local allowed = db.enabled
-    if allowed and db.consumablesOnly and classID ~= nil and classID ~= CONSUMABLE_CLASS then
-        allowed = false
-    end
+    local allowed = db.enabled and ItemAllowed(classID, regions)
 
     for _, region in ipairs(regions) do
         if region and region.GetObjectType and region:GetObjectType() == "FontString" then
@@ -525,7 +678,7 @@ local function HighlightTooltip(tooltip, data)
                 if not (ours and regionVersion[region] == settingsVersion and allowed) then
                     if ours then text = originals[region] end
 
-                    local spans = allowed and FindStatSpans(text) or {}
+                    local spans = allowed and FindAllSpans(text) or {}
                     if #spans > 0 then
                         local newText = BuildHighlighted(text, spans)
                         originals[region] = text
@@ -646,6 +799,24 @@ local function ShowHelpTooltip(owner, title, line)
     GameTooltip:Show()
 end
 
+local function AttachHelp(widget, title, line)
+    widget:SetScript("OnEnter", function(self) ShowHelpTooltip(self, title, line) end)
+    widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+-- Titulo de seccion con una linea fina hasta el borde derecho.
+local function CreateSection(parent, text, y)
+    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    label:SetPoint("TOPLEFT", 16, y)
+    label:SetText(text)
+    local line = parent:CreateTexture(nil, "ARTWORK")
+    line:SetColorTexture(1, 1, 1, 0.15)
+    line:SetHeight(1)
+    line:SetPoint("LEFT", label, "RIGHT", 8, 0)
+    line:SetPoint("RIGHT", parent, "RIGHT", -16, 0)
+    return label
+end
+
 local function CreateOptionsFrame()
     local ok, f = pcall(CreateFrame, "Frame", "StatHighlightOptionsFrame", UIParent, "BasicFrameTemplateWithInset")
     if not ok or not f then
@@ -656,7 +827,7 @@ local function CreateOptionsFrame()
         local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
         close:SetPoint("TOPRIGHT", 2, 2)
     end
-    f:SetSize(540, 470)
+    f:SetSize(560, 566)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetMovable(true)
@@ -671,23 +842,18 @@ local function CreateOptionsFrame()
     title:SetPoint("TOP", 0, -6)
     title:SetText("StatHighlight")
 
-    -- Opciones generales
+    -- 1) General ---------------------------------------------------------
+    CreateSection(f, "General", -32)
+
     local enabled = CreateCheck(f, "Activado")
-    enabled:SetPoint("TOPLEFT", 16, -34)
+    enabled:SetPoint("TOPLEFT", 16, -50)
     enabled:SetScript("OnClick", function(self)
         db.enabled = self:GetChecked() and true or false
         OnSettingsChanged()
     end)
 
-    local consumables = CreateCheck(f, "Solo consumibles (comida, pociones, elixires...)")
-    consumables:SetPoint("TOPLEFT", 150, -34)
-    consumables:SetScript("OnClick", function(self)
-        db.consumablesOnly = self:GetChecked() and true or false
-        OnSettingsChanged()
-    end)
-
-    local generalLabel = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    generalLabel:SetPoint("TOPLEFT", 20, -68)
+    local generalLabel = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    generalLabel:SetPoint("TOPLEFT", 150, -55)
     generalLabel:SetText("Color general:")
 
     local generalSwatch = CreateSwatch(f)
@@ -702,14 +868,11 @@ local function CreateOptionsFrame()
             OnSettingsChanged()
         end)
     end)
-    generalSwatch:SetScript("OnEnter", function(self)
-        ShowHelpTooltip(self, "Color general", "Color para todas las estadísticas que no tengan uno propio.")
-    end)
-    generalSwatch:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    AttachHelp(generalSwatch, "Color general", "Color para todas las estadísticas que no tengan uno propio.")
 
     local resetButton = CreateFrame("Button", nil, f, "UIPanelButtonTemplate")
     resetButton:SetSize(120, 22)
-    resetButton:SetPoint("TOPRIGHT", -20, -64)
+    resetButton:SetPoint("TOPRIGHT", -20, -50)
     resetButton:SetText("Restablecer todo")
     resetButton:SetScript("OnClick", function()
         ResetDB()
@@ -717,18 +880,76 @@ local function CreateOptionsFrame()
         print("|cffffd24aStatHighlight|r: opciones restablecidas.")
     end)
 
-    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", 20, -94)
-    hint:SetText("Casilla: activar la estadística.  Cuadro de color: clic = color propio, clic derecho = usar el color general.")
+    -- 2) Donde resaltar --------------------------------------------------
+    CreateSection(f, "Dónde resaltar", -84)
 
-    -- Lista de estadisticas en dos columnas
+    local TYPE_OPTIONS = {
+        { key = "consumable", x = 16, label = "Consumibles",
+          help = "Comida, bebida, pociones, elixires, pergaminos, vendas..." },
+        { key = "other", x = 150, label = "Hoguera y otros objetos con efecto",
+          help = "Objetos que no son consumibles pero tienen una línea \"Usar:\" o se echan a la hoguera para obtener un beneficio." },
+        { key = "gear", x = 420, label = "Equipo",
+          help = "Armas y armaduras (bonificaciones como \"+10 Aguante\"). Desactivado por defecto." },
+    }
+    local typeChecks = {}
+    for _, opt in ipairs(TYPE_OPTIONS) do
+        local check = CreateCheck(f, opt.label)
+        check:SetPoint("TOPLEFT", opt.x, -102)
+        check:SetScript("OnClick", function(self)
+            db.types[opt.key] = self:GetChecked() and true or false
+            OnSettingsChanged()
+        end)
+        AttachHelp(check, opt.label, opt.help)
+        typeChecks[opt.key] = check
+    end
+
+    -- 3) Duraciones ------------------------------------------------------
+    CreateSection(f, "Duración del efecto", -136)
+
+    local durationCheck = CreateCheck(f, "Resaltar duraciones  (durante 30 min, 1 h, 10 s...)")
+    durationCheck:SetPoint("TOPLEFT", 16, -154)
+    durationCheck:SetScript("OnClick", function(self)
+        StatSettings(DURATION_KEY).enabled = self:GetChecked() and true or false
+        OnSettingsChanged()
+    end)
+    AttachHelp(durationCheck, "Duraciones",
+        "Resalta cuánto dura el efecto. No resalta tiempos de reutilización ni intervalos (\"cada 5 s\").")
+
+    local durationSwatch = CreateSwatch(f)
+    durationSwatch:SetPoint("LEFT", durationCheck.label, "RIGHT", 10, 0)
+    durationSwatch:SetScript("OnClick", function(self, button)
+        local s = StatSettings(DURATION_KEY)
+        if button == "RightButton" then
+            s.color = nil
+            OnSettingsChanged()
+            return
+        end
+        local previous = s.color and CopyColor(s.color) or nil
+        OpenColorPicker(EffectiveColor(DURATION_KEY), function(c)
+            s.color = c
+            OnSettingsChanged()
+        end, function()
+            s.color = previous
+            OnSettingsChanged()
+        end)
+    end)
+    AttachHelp(durationSwatch, "Color de las duraciones",
+        "Clic: elegir color.\nClic derecho: volver al color por defecto (azul claro).")
+
+    -- 4) Estadisticas ----------------------------------------------------
+    CreateSection(f, "Estadísticas", -188)
+
+    local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", 20, -206)
+    hint:SetText("Casilla: activar.  Cuadro de color: clic = color propio, clic derecho = color general.")
+
     local rows = {}
     local perColumn = math.ceil(#CATEGORIES / 2)
     for i, cat in ipairs(CATEGORIES) do
         local col = (i <= perColumn) and 0 or 1
         local rowIndex = (i - 1) % perColumn
-        local x = 16 + col * 262
-        local y = -114 - rowIndex * 25
+        local x = 16 + col * 270
+        local y = -224 - rowIndex * 25
 
         local check = CreateCheck(f, cat.label)
         check:SetPoint("TOPLEFT", x, y)
@@ -738,7 +959,7 @@ local function CreateOptionsFrame()
         end)
 
         local swatch = CreateSwatch(f)
-        swatch:SetPoint("TOPLEFT", x + 228, y - 2)
+        swatch:SetPoint("TOPLEFT", x + 236, y - 2)
         swatch:SetScript("OnClick", function(self, button)
             local s = StatSettings(cat.key)
             if button == "RightButton" then
@@ -762,17 +983,21 @@ local function CreateOptionsFrame()
         end)
         swatch:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-        rows[#rows + 1] = { cat = cat, check = check, swatch = swatch }
+        rows[#rows + 1] = { key = cat.key, check = check, swatch = swatch }
     end
+    -- La fila de duracion se refresca igual que una estadistica.
+    rows[#rows + 1] = { key = DURATION_KEY, check = durationCheck, swatch = durationSwatch }
 
     RefreshOptions = function()
         if not db then return end
         enabled:SetChecked(db.enabled)
-        consumables:SetChecked(db.consumablesOnly)
+        for key, check in pairs(typeChecks) do
+            check:SetChecked(db.types[key])
+        end
         generalSwatch.fill:SetColorTexture(db.color.r, db.color.g, db.color.b, 1)
         for _, row in ipairs(rows) do
-            local on = IsCategoryEnabled(row.cat.key)
-            local c = EffectiveColor(row.cat.key)
+            local on = IsCategoryEnabled(row.key)
+            local c = EffectiveColor(row.key)
             row.check:SetChecked(on)
             row.swatch.fill:SetColorTexture(c.r, c.g, c.b, 1)
             if on then
@@ -866,3 +1091,9 @@ loader:SetScript("OnEvent", function(self, event, name)
         Print("cargado. Escribe /shl para abrir el menú.")
     end
 end)
+
+-- Acceso interno para las pruebas automaticas (tests/). No afecta al juego.
+ns.InitDB = InitDB
+ns.FindAllSpans = FindAllSpans
+ns.BuildHighlighted = BuildHighlighted
+ns.ItemAllowed = ItemAllowed

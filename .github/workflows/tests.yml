@@ -1,0 +1,29 @@
+name: Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        # actions/checkout v4.2.2 fijado por SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Instalar Lua 5.1 (la versión de WoW)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
+
+      - name: Comprobar sintaxis
+        run: luac5.1 -p StatHighlight.lua
+
+      - name: Ejecutar pruebas
+        run: lua5.1 tests/run.lua
