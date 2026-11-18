@@ -59,10 +59,14 @@ local L = {
     BG_OPACITY_HELP = "100% = solid background, the game world does not show through.\n0% = fully transparent.",
 
     SECTION_STATS = "Stats",
-    STATS_HINT = "Checkbox: enable.  Color box: click = own color, right-click = general color.",
+    STATS_HINT = "Checkbox: enable.  Color box: click = own color, right-click = general.  Star: glow.",
     STAT_OWN_COLOR = "Has its own color.",
     STAT_GENERAL_COLOR = "Uses the general color.",
     STAT_COLOR_HELP = "\nClick: choose its own color.\nRight-click: back to the general color.",
+    GLOW_TITLE = "Glow",
+    GLOW_ON = "On.",
+    GLOW_OFF = "Off.",
+    GLOW_HELP = "\nClick: turn on or off a soft glow, in the highlight color, behind the tooltip lines that contain it.",
 }
 
 if IS_SPANISH then
@@ -109,10 +113,14 @@ if IS_SPANISH then
     L.BG_OPACITY_HELP = "100% = fondo sólido, no se ve el mundo del juego a través.\n0% = totalmente transparente."
 
     L.SECTION_STATS = "Estadísticas"
-    L.STATS_HINT = "Casilla: activar.  Cuadro de color: clic = color propio, clic derecho = color general."
+    L.STATS_HINT = "Casilla: activar.  Color: clic = color propio, clic derecho = general.  Estrella: brillo."
     L.STAT_OWN_COLOR = "Tiene color propio."
     L.STAT_GENERAL_COLOR = "Usa el color general."
     L.STAT_COLOR_HELP = "\nClic: elegir color propio.\nClic derecho: volver al color general."
+    L.GLOW_TITLE = "Brillo"
+    L.GLOW_ON = "Activado."
+    L.GLOW_OFF = "Desactivado."
+    L.GLOW_HELP = "\nClic: activar o desactivar un brillo suave, del color del resaltado, detrás de las líneas del tooltip que lo contengan."
 end
 
 local MAX_GAP = 45 -- max bytes between a stat name and its amount
@@ -368,6 +376,12 @@ local function EffectiveColor(key)
     if s and s.color then return s.color end
     if key == DURATION_KEY then return DURATION_COLOR end
     return (db and db.color) or DEFAULT_COLOR
+end
+
+-- Glow is off unless turned on for that stat.
+local function IsGlowEnabled(key)
+    local s = db and db.stats[key]
+    return s ~= nil and s.glow == true
 end
 
 local function ColorCode(c)
@@ -806,6 +820,63 @@ local function DebugDump(tooltip, item, classID, regions)
     end
 end
 
+------------------------------------------------------------------------
+-- Line glow
+-- A FontString holds a whole tooltip line, so the glow is a soft additive
+-- texture placed behind the line, in the color of the first glowing stat.
+------------------------------------------------------------------------
+local GLOW_TEXTURE = "Interface\\QuestFrame\\UI-QuestLogTitleHighlight"
+local GLOW_ALPHA = 0.5
+local lineGlow = setmetatable({}, { __mode = "k" })  -- FontString -> color
+local glowPool = setmetatable({}, { __mode = "k" })  -- tooltip -> textures
+
+local function GlowColorFor(spans)
+    for _, span in ipairs(spans) do
+        if IsGlowEnabled(span[3]) then return EffectiveColor(span[3]) end
+    end
+end
+
+local function HideGlows(tooltip, from)
+    local pool = glowPool[tooltip]
+    if not pool then return end
+    for i = from or 1, #pool do pool[i]:Hide() end
+end
+
+local function NewGlow(tooltip)
+    local glow = tooltip:CreateTexture(nil, "ARTWORK", nil, -8)
+    if glow:SetTexture(GLOW_TEXTURE) == false then
+        glow:SetColorTexture(1, 1, 1, 1) -- texture missing: plain soft band
+    end
+    if glow.SetBlendMode then glow:SetBlendMode("ADD") end
+    local pool = glowPool[tooltip]
+    if not pool then
+        pool = {}
+        glowPool[tooltip] = pool
+    end
+    pool[#pool + 1] = glow
+    return glow
+end
+
+local function UpdateGlows(tooltip, regions)
+    if not tooltip.CreateTexture then return end
+    local used = 0
+    for _, region in ipairs(regions) do
+        local c = lineGlow[region]
+        if c and highlighted[region] == region:GetText()
+            and (not region.IsShown or region:IsShown()) then
+            used = used + 1
+            local pool = glowPool[tooltip]
+            local glow = (pool and pool[used]) or NewGlow(tooltip)
+            glow:ClearAllPoints()
+            glow:SetPoint("TOPLEFT", region, "TOPLEFT", -6, 4)
+            glow:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", 6, -4)
+            glow:SetVertexColor(c.r, c.g, c.b, GLOW_ALPHA)
+            glow:Show()
+        end
+    end
+    HideGlows(tooltip, used + 1)
+end
+
 local function HighlightTooltip(tooltip, data)
     if not db or not tooltip or not tooltip.GetRegions then return end
     if tooltip.IsForbidden and tooltip:IsForbidden() then return end
@@ -832,17 +903,20 @@ local function HighlightTooltip(tooltip, data)
                         originals[region] = text
                         highlighted[region] = newText
                         regionVersion[region] = settingsVersion
+                        lineGlow[region] = GlowColorFor(spans)
                         if newText ~= region:GetText() then region:SetText(newText) end
                     else
                         if ours then region:SetText(text) end
                         originals[region] = nil
                         highlighted[region] = nil
                         regionVersion[region] = nil
+                        lineGlow[region] = nil
                     end
                 end
             end
         end
     end
+    UpdateGlows(tooltip, regions)
 end
 
 -- Hook in every available way: some tooltips (bags, vendor...) do not go
@@ -931,7 +1005,7 @@ for _, name in ipairs(TOOLTIPS) do
         end
         frame:HookScript("OnShow", function(self)
             ApplyTooltipBackground(self)
-            if TooltipShowsItem(self) then HighlightTooltip(self) end
+            if TooltipShowsItem(self) then HighlightTooltip(self) else HideGlows(self) end
         end)
         -- Re-check every 0.2 s while visible (text that arrives late).
         local elapsed = 0
@@ -940,7 +1014,7 @@ for _, name in ipairs(TOOLTIPS) do
             if elapsed < 0.2 then return end
             elapsed = 0
             ApplyTooltipBackground(self)
-            if TooltipShowsItem(self) then HighlightTooltip(self) end
+            if TooltipShowsItem(self) then HighlightTooltip(self) else HideGlows(self) end
         end)
     end
 end
@@ -1015,6 +1089,54 @@ end
 local function AttachHelp(widget, title, line)
     widget:SetScript("OnEnter", function(self) ShowHelpTooltip(self, title, line) end)
     widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+-- Small star button that turns the line glow on or off for one stat.
+local function CreateGlowToggle(parent)
+    local button = CreateFrame("Button", nil, parent)
+    button:SetSize(18, 18)
+    local border = button:CreateTexture(nil, "BACKGROUND")
+    border:SetAllPoints()
+    border:SetColorTexture(0.05, 0.05, 0.05, 1)
+    local star = button:CreateTexture(nil, "ARTWORK")
+    star:SetPoint("TOPLEFT", -3, 3)
+    star:SetPoint("BOTTOMRIGHT", 3, -3)
+    if star:SetTexture("Interface\\Cooldown\\star4") == false then
+        -- Texture missing: a small square instead.
+        star:ClearAllPoints()
+        star:SetPoint("TOPLEFT", 5, -5)
+        star:SetPoint("BOTTOMRIGHT", -5, 5)
+        star:SetColorTexture(1, 1, 1, 1)
+    end
+    if star.SetBlendMode then star:SetBlendMode("ADD") end
+    button.star = star
+    return button
+end
+
+-- Wires a glow toggle to the "glow" setting of one stat.
+local function SetupGlowToggle(button, key, title)
+    local function ShowHelp(self)
+        local state = IsGlowEnabled(key) and L.GLOW_ON or L.GLOW_OFF
+        ShowHelpTooltip(self, L.GLOW_TITLE .. ": " .. title, state .. L.GLOW_HELP)
+    end
+    button:SetScript("OnClick", function(self)
+        local s = StatSettings(key)
+        s.glow = (not s.glow) or nil
+        OnSettingsChanged()
+        ShowHelp(self)
+    end)
+    button:SetScript("OnEnter", ShowHelp)
+    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
+end
+
+local function RefreshGlowToggle(button, key, c)
+    if IsGlowEnabled(key) then
+        button.star:SetVertexColor(c.r, c.g, c.b, 1)
+        button.star:SetAlpha(1)
+    else
+        button.star:SetVertexColor(0.6, 0.6, 0.6, 1)
+        button.star:SetAlpha(0.3)
+    end
 end
 
 -- Section title with a thin line up to the right edge.
@@ -1173,6 +1295,10 @@ local function CreateOptionsFrame()
     end)
     AttachHelp(durationSwatch, L.DURATION_COLOR_TITLE, L.DURATION_COLOR_HELP)
 
+    local durationGlow = CreateGlowToggle(f)
+    durationGlow:SetPoint("LEFT", durationSwatch, "RIGHT", 6, 0)
+    SetupGlowToggle(durationGlow, DURATION_KEY, L.DURATION_TITLE)
+
     -- 4) Tooltip background ----------------------------------------------
     CreateSection(f, L.SECTION_BACKGROUND, -188)
 
@@ -1220,7 +1346,7 @@ local function CreateOptionsFrame()
         end)
 
         local swatch = CreateSwatch(f)
-        swatch:SetPoint("TOPLEFT", x + 236, y - 2)
+        swatch:SetPoint("TOPLEFT", x + 212, y - 2)
         swatch:SetScript("OnClick", function(self, button)
             local s = StatSettings(cat.key)
             if button == "RightButton" then
@@ -1244,10 +1370,14 @@ local function CreateOptionsFrame()
         end)
         swatch:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-        rows[#rows + 1] = { key = cat.key, check = check, swatch = swatch }
+        local glow = CreateGlowToggle(f)
+        glow:SetPoint("TOPLEFT", x + 236, y - 2)
+        SetupGlowToggle(glow, cat.key, cat.label)
+
+        rows[#rows + 1] = { key = cat.key, check = check, swatch = swatch, glow = glow }
     end
     -- The duration row is refreshed like a stat row.
-    rows[#rows + 1] = { key = DURATION_KEY, check = durationCheck, swatch = durationSwatch }
+    rows[#rows + 1] = { key = DURATION_KEY, check = durationCheck, swatch = durationSwatch, glow = durationGlow }
 
     RefreshOptions = function()
         if not db then return end
@@ -1272,6 +1402,7 @@ local function CreateOptionsFrame()
             local c = EffectiveColor(row.key)
             row.check:SetChecked(on)
             row.swatch.fill:SetColorTexture(c.r, c.g, c.b, 1)
+            RefreshGlowToggle(row.glow, row.key, c)
             if on then
                 row.check.label:SetTextColor(c.r, c.g, c.b)
             else
@@ -1371,3 +1502,5 @@ ns.BuildHighlighted = BuildHighlighted
 ns.ItemAllowed = ItemAllowed
 ns.L = L
 ns.ApplyTooltipBackground = ApplyTooltipBackground
+ns.HighlightTooltip = HighlightTooltip
+ns.OnSettingsChanged = OnSettingsChanged

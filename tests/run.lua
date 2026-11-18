@@ -185,6 +185,80 @@ do
     Check("background: off by default", StatHighlightDB.background.enabled, false)
 end
 
+-- Line glow -----------------------------------------------------------------
+do
+    StatHighlightDB = nil
+    ns.InitDB()
+
+    local textures = {}
+    local function FakeTexture()
+        local t = { shown = false }
+        function t:SetTexture() return true end
+        function t:SetBlendMode() end
+        function t:ClearAllPoints() end
+        function t:SetPoint() end
+        function t:SetVertexColor(r, g, b, a) self.color = { r, g, b, a } end
+        function t:Show() self.shown = true end
+        function t:Hide() self.shown = false end
+        textures[#textures + 1] = t
+        return t
+    end
+    local function Line(text)
+        local l = { text = text }
+        function l:GetObjectType() return "FontString" end
+        function l:GetText() return self.text end
+        function l:SetText(t) self.text = t end
+        return l
+    end
+    local lines = {
+        Line("Usar: Restaura 530 p. de salud durante 30 s."),
+        Line("Nivel 45"),
+    }
+    local tooltip = {}
+    function tooltip:GetRegions() return unpack(lines) end
+    function tooltip:CreateTexture() return FakeTexture() end
+    local function Shown()
+        local n, last = 0, nil
+        for _, t in ipairs(textures) do
+            if t.shown then n, last = n + 1, t end
+        end
+        return n, last
+    end
+
+    ns.HighlightTooltip(tooltip)
+    Check("glow: off by default", (Shown()), 0)
+
+    StatHighlightDB.stats.health = { glow = true }
+    ns.OnSettingsChanged()
+    ns.HighlightTooltip(tooltip)
+    local n, glow = Shown()
+    Check("glow: one line glows", n, 1)
+    Check("glow: uses the stat's color", glow and glow.color[3], 0.290)
+
+    StatHighlightDB.stats.health = nil
+    StatHighlightDB.stats.duration = { glow = true }
+    ns.OnSettingsChanged()
+    ns.HighlightTooltip(tooltip)
+    n, glow = Shown()
+    Check("glow: duration glow uses the duration color", glow and glow.color[1], 0.400)
+    Check("glow: textures are reused", #textures, 1)
+
+    StatHighlightDB.stats.duration = nil
+    ns.OnSettingsChanged()
+    ns.HighlightTooltip(tooltip)
+    Check("glow: hidden when turned off", (Shown()), 0)
+
+    StatHighlightDB.stats.health = { glow = true }
+    StatHighlightDB.enabled = false
+    ns.OnSettingsChanged()
+    ns.HighlightTooltip(tooltip)
+    Check("glow: hidden when the addon is off", (Shown()), 0)
+    Check("glow: text restored when the addon is off", lines[1].text,
+        "Usar: Restaura 530 p. de salud durante 30 s.")
+    StatHighlightDB = nil
+    ns.InitDB()
+end
+
 -- Options window can be built and refreshed ---------------------------------
 do
     local ok, err = pcall(function()
