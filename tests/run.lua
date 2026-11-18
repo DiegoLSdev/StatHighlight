@@ -1,10 +1,13 @@
 -- Automated tests for StatHighlight detection, run outside the game (Lua 5.1).
 -- Usage: lua5.1 tests/run.lua   (from the repository root)
 
--- Minimal WoW environment: every frame method is a no-op.
-local function Dummy()
-    return setmetatable({}, { __index = function() return function() end end })
-end
+-- Minimal WoW environment: every frame method does nothing and returns
+-- another dummy object, so the options window can be built in tests.
+local Dummy
+local dummyMeta = {
+    __index = function() return function() return Dummy() end end,
+}
+Dummy = function() return setmetatable({}, dummyMeta) end
 CreateFrame = function() return Dummy() end
 tinsert = table.insert
 UISpecialFrames = {}
@@ -121,6 +124,77 @@ StatHighlightDB = { enabled = true, consumablesOnly = true }
 ns.InitDB()
 Check("migration: consumables-only on -> gear off", StatHighlightDB.types.gear, false)
 
+-- Campfire items seen in game (1.2.0) ---------------------------------------
+StatHighlightDB = nil
+ns.InitDB()
+Expect("Usar: Coloca un pequeño cuenco con pescado que permite que tú y otros os sentéis cerca para obtener un 8% más de estadísticas. Incompatible con Bendición de reyes.",
+    "8% más de estadísticas=allstats")
+Expect("Usar: Prende una vela de incienso que permite que tú y otros os sentéis cerca para obtener 12 p. más de intelecto. Incompatible con Intelecto Arcano.",
+    "12 p. más de intelecto=intellect")
+Expect("Use: Places a small bowl of fish that lets you and others sitting nearby gain 8% more stats.",
+    "8% more stats=allstats")
+Expect("Use: Lights a stick of incense that grants 12 more Intellect to those sitting nearby.",
+    "12 more Intellect=intellect")
+Expect("Requiere una hoguera cercana. Todas las características de acampada comparten el mismo tiempo de reutilización de 1 h.", "")
+Expect("Requiere Pesca (20)", "")
+Expect("|cffff2020Requiere Botánica (20)|r", "")
+Expect("Requires Fishing (20)", "")
+Expect("Tiempo de reutilización restante: 58 min 23 s", "")
+Expect("Cooldown remaining: 58 min 23 sec", "")
+
+-- Tooltip background opacity ------------------------------------------------
+do
+    local function FakeTexture(r, g, b, a)
+        local t = { color = { r, g, b, a } }
+        function t:GetVertexColor() return unpack(self.color) end
+        function t:SetVertexColor(nr, ng, nb, na) self.color = { nr, ng, nb, na } end
+        return t
+    end
+    local tooltip = { NineSlice = { Center = FakeTexture(0.09, 0.09, 0.19, 0.8) } }
+    local center = tooltip.NineSlice.Center
+
+    ns.ApplyTooltipBackground(tooltip)
+    Check("background: untouched when off", center.color[4], 0.8)
+
+    StatHighlightDB.background = { enabled = true, alpha = 1 }
+    ns.ApplyTooltipBackground(tooltip)
+    Check("background: solid when on at 100%", center.color[4], 1)
+    Check("background: keeps the game's color", center.color[3], 0.19)
+
+    StatHighlightDB.background.alpha = 0.35
+    ns.ApplyTooltipBackground(tooltip)
+    Check("background: follows the slider", center.color[4], 0.35)
+
+    StatHighlightDB.background.enabled = false
+    ns.ApplyTooltipBackground(tooltip)
+    Check("background: restored when turned off", center.color[4], 0.8)
+
+    -- Old-style tooltips use a backdrop instead of NineSlice.
+    local old = { bg = { 0, 0, 0, 0.7 } }
+    function old:GetBackdropColor() return unpack(self.bg) end
+    function old:SetBackdropColor(r, g, b, a) self.bg = { r, g, b, a } end
+    StatHighlightDB.background = { enabled = true, alpha = 0.5 }
+    ns.ApplyTooltipBackground(old)
+    Check("background: backdrop tooltips", old.bg[4], 0.5)
+
+    StatHighlightDB = { background = { enabled = true, alpha = 7 } }
+    ns.InitDB()
+    Check("background: saved alpha is clamped", StatHighlightDB.background.alpha, 1)
+    StatHighlightDB = { }
+    ns.InitDB()
+    Check("background: off by default", StatHighlightDB.background.enabled, false)
+end
+
+-- Options window can be built and refreshed ---------------------------------
+do
+    local ok, err = pcall(function()
+        SlashCmdList["STATHIGHLIGHT"]("")     -- builds the window
+        SlashCmdList["STATHIGHLIGHT"]("on")   -- refreshes it
+        SlashCmdList["STATHIGHLIGHT"]("reset")
+    end)
+    Check("options window builds (English)", ok and "ok" or tostring(err), "ok")
+end
+
 -- Interface language -------------------------------------------------------
 Check("English interface by default", ns.L.ENABLED, "Enabled")
 do
@@ -128,6 +202,12 @@ do
     local esNs = {}
     assert(loadfile("StatHighlight.lua"))("StatHighlight", esNs)
     Check("Spanish interface on esES clients", esNs.L.ENABLED, "Activado")
+    esNs.InitDB()
+    local ok, err = pcall(function()
+        SlashCmdList["STATHIGHLIGHT"]("")
+        SlashCmdList["STATHIGHLIGHT"]("on")
+    end)
+    Check("options window builds (Spanish)", ok and "ok" or tostring(err), "ok")
     -- Every English text must also have a value on Spanish clients.
     for key in pairs(ns.L) do
         Check("Spanish text for " .. key, type(esNs.L[key]), "string")

@@ -52,6 +52,12 @@ local L = {
     DURATION_COLOR_TITLE = "Duration color",
     DURATION_COLOR_HELP = "Click: choose a color.\nRight-click: back to the default color (light blue).",
 
+    SECTION_BACKGROUND = "Tooltip background",
+    BG_CHECK = "Change background opacity",
+    BG_HELP = "Makes the background of tooltips more or less see-through. When off, the game's default is used.",
+    BG_OPACITY = "Opacity",
+    BG_OPACITY_HELP = "100% = solid background, the game world does not show through.\n0% = fully transparent.",
+
     SECTION_STATS = "Stats",
     STATS_HINT = "Checkbox: enable.  Color box: click = own color, right-click = general color.",
     STAT_OWN_COLOR = "Has its own color.",
@@ -96,6 +102,12 @@ if IS_SPANISH then
     L.DURATION_COLOR_TITLE = "Color de las duraciones"
     L.DURATION_COLOR_HELP = "Clic: elegir color.\nClic derecho: volver al color por defecto (azul claro)."
 
+    L.SECTION_BACKGROUND = "Fondo del tooltip"
+    L.BG_CHECK = "Cambiar la opacidad del fondo"
+    L.BG_HELP = "Hace que el fondo de los tooltips sea más o menos transparente. Desactivado, se usa el del juego."
+    L.BG_OPACITY = "Opacidad"
+    L.BG_OPACITY_HELP = "100% = fondo sólido, no se ve el mundo del juego a través.\n0% = totalmente transparente."
+
     L.SECTION_STATS = "Estadísticas"
     L.STATS_HINT = "Casilla: activar.  Cuadro de color: clic = color propio, clic derecho = color general."
     L.STAT_OWN_COLOR = "Tiene color propio."
@@ -127,7 +139,10 @@ local CATEGORIES = {
     { key = "allstats", label = "All stats", es = "Todos los atributos", names = {
         "todos los atributos", "todas las estadísticas", "todas las estadisticas",
         "todas tus estadísticas", "todas tus estadisticas", "todos tus atributos",
-        "all stats", "all attributes" } },
+        "all stats", "all attributes",
+        -- Generic: "un 8% más de estadísticas", "8% more stats". They are
+        -- only highlighted next to an amount.
+        "estadísticas", "estadisticas", "atributos", "stats", "attributes" } },
     { key = "armor", label = "Armor", es = "Armadura", names = {
         "armadura", "valor de armadura", "armor", "armour" } },
     { key = "defense", label = "Defense", es = "Defensa", names = {
@@ -219,10 +234,13 @@ local function MakeSet(list)
     return set
 end
 
--- Words allowed between an amount and the name: "6 p. de tu aguante".
+-- Words allowed between an amount and the name: "6 p. de tu aguante",
+-- "12 p. más de intelecto", "un 8% más de estadísticas", "8% more stats".
 local CONNECTORS = MakeSet({
     "de", "del", "tu", "su", "tus", "sus", "el", "la", "los", "las",
-    "a", "al", "en", "your", "of", "the" })
+    "a", "al", "en", "your", "of", "the",
+    "más", "mas", "extra", "adicional", "adicionales",
+    "more", "additional", "bonus" })
 
 -- Words allowed between the name and an amount that comes after it:
 -- "aguante aumentará 12 p.", "Stamina by 12", "experiencia obtenida al
@@ -291,10 +309,16 @@ local function DefaultTypes()
     }
 end
 
+-- Tooltip background opacity. Off by default: the game's own look is kept.
+local function DefaultBackground()
+    return { enabled = false, alpha = 1 }
+end
+
 local function ResetDB()
     StatHighlightDB = {
         enabled = true,
         types = DefaultTypes(),
+        background = DefaultBackground(),
         debug = false,
         color = CopyColor(DEFAULT_COLOR),
         stats = {},
@@ -318,6 +342,9 @@ local function InitDB()
     db.consumablesOnly = nil
     if type(db.color) ~= "table" then db.color = CopyColor(DEFAULT_COLOR) end
     if type(db.stats) ~= "table" then db.stats = {} end
+    if type(db.background) ~= "table" then db.background = DefaultBackground() end
+    if type(db.background.alpha) ~= "number" then db.background.alpha = 1 end
+    db.background.alpha = math.max(0, math.min(1, db.background.alpha))
 end
 
 local function StatSettings(key)
@@ -396,8 +423,8 @@ local function FindAmountBefore(text, lowerText, s)
     end
     trim()
 
-    -- Up to two joining words ("de tu").
-    for _ = 1, 2 do
+    -- Up to three joining words ("más de tu").
+    for _ = 1, 3 do
         local prefix = string.sub(lowerText, 1, pos)
         local w1 = string.find(prefix, "[%a\128-\255]+$")
         if w1 and CONNECTORS[string.sub(prefix, w1)] then
@@ -408,9 +435,12 @@ local function FindAmountBefore(text, lowerText, s)
         end
     end
 
-    -- Optional "p.", "puntos" or "points".
+    -- Optional "p.", "puntos", "points" or "%".
     local prefix = string.sub(lowerText, 1, pos)
-    if string.sub(prefix, -2) == "p." and not IsLetterByte(string.byte(prefix, #prefix - 2)) then
+    if string.sub(prefix, -1) == "%" then
+        pos = pos - 1
+        trim()
+    elseif string.sub(prefix, -2) == "p." and not IsLetterByte(string.byte(prefix, #prefix - 2)) then
         pos = pos - 2
         trim()
     elseif string.sub(prefix, -6) == "puntos" and not IsLetterByte(string.byte(prefix, #prefix - 6)) then
@@ -627,7 +657,24 @@ local function FindDurationSpans(text, lowerText, taken)
 end
 
 -- Stats + durations, sorted and non-overlapping.
+local function StripColorCodes(lowerText)
+    return (string.gsub(string.gsub(lowerText, "|c%x%x%x%x%x%x%x%x", ""), "|r", ""))
+end
+
+-- Requirement lines ("Requiere Pesca (20)", "Requires Level 40") are not
+-- bonuses, so nothing in them is highlighted.
+local REQUIREMENT_PREFIXES = { "requiere", "requires", "requisito" }
+
+local function IsRequirementLine(lowerText)
+    local plain = StripColorCodes(lowerText)
+    for _, prefix in ipairs(REQUIREMENT_PREFIXES) do
+        if string.find(plain, "^%s*" .. prefix .. "[%s:]") then return true end
+    end
+    return false
+end
+
 local function FindAllSpans(text)
+    if IsRequirementLine(Normalize(text)) then return {} end
     local spans = FindStatSpans(text)
     if IsCategoryEnabled(DURATION_KEY) and string.find(text, "%d") then
         local durations = FindDurationSpans(text, Normalize(text), spans)
@@ -814,6 +861,68 @@ local function TooltipShowsItem(tooltip)
     return GetTooltipItem(tooltip) ~= nil
 end
 
+------------------------------------------------------------------------
+-- Tooltip background opacity
+-- Only the alpha of the background changes; its color stays the game's.
+-- The original color is remembered so it can be restored when turned off.
+------------------------------------------------------------------------
+local originalBackground = setmetatable({}, { __mode = "k" })
+
+local function ApplyTooltipBackground(tooltip)
+    if not db or not tooltip then return end
+    if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+    local center = tooltip.NineSlice and tooltip.NineSlice.Center
+    if center and not center.GetVertexColor then center = nil end
+    local useBackdrop = not center and tooltip.GetBackdropColor and tooltip.SetBackdropColor
+
+    local function Set(r, g, b, a)
+        if center then
+            center:SetVertexColor(r, g, b, a)
+        elseif useBackdrop then
+            tooltip:SetBackdropColor(r, g, b, a)
+        end
+    end
+
+    local original = originalBackground[tooltip]
+    if db.background.enabled then
+        if not original then
+            local r, g, b, a
+            if center then
+                r, g, b, a = center:GetVertexColor()
+            elseif useBackdrop then
+                r, g, b, a = tooltip:GetBackdropColor()
+            end
+            if not r then return end
+            original = { r, g, b, a or 1 }
+            originalBackground[tooltip] = original
+        end
+        Set(original[1], original[2], original[3], db.background.alpha)
+    elseif original then
+        Set(original[1], original[2], original[3], original[4])
+        originalBackground[tooltip] = nil
+    end
+end
+
+-- The game resets the background style when a tooltip is set up again.
+for _, styleFunc in ipairs({ "GameTooltip_SetBackdropStyle", "SharedTooltip_SetBackdropStyle" }) do
+    if hooksecurefunc and type(_G[styleFunc]) == "function" then
+        hooksecurefunc(styleFunc, function(tooltip)
+            if originalBackground[tooltip] then
+                -- The style may have changed the color: read it again.
+                originalBackground[tooltip] = nil
+            end
+            ApplyTooltipBackground(tooltip)
+        end)
+    end
+end
+
+local function ApplyBackgroundToAll()
+    for _, name in ipairs(TOOLTIPS) do
+        local frame = _G[name]
+        if frame then ApplyTooltipBackground(frame) end
+    end
+end
+
 for _, name in ipairs(TOOLTIPS) do
     local frame = _G[name]
     if frame and frame.HookScript then
@@ -821,6 +930,7 @@ for _, name in ipairs(TOOLTIPS) do
             frame:HookScript("OnTooltipSetItem", function(self) HighlightTooltip(self) end)
         end
         frame:HookScript("OnShow", function(self)
+            ApplyTooltipBackground(self)
             if TooltipShowsItem(self) then HighlightTooltip(self) end
         end)
         -- Re-check every 0.2 s while visible (text that arrives late).
@@ -829,6 +939,7 @@ for _, name in ipairs(TOOLTIPS) do
             elapsed = elapsed + (dt or 0)
             if elapsed < 0.2 then return end
             elapsed = 0
+            ApplyTooltipBackground(self)
             if TooltipShowsItem(self) then HighlightTooltip(self) end
         end)
     end
@@ -842,6 +953,7 @@ local RefreshOptions
 
 local function OnSettingsChanged()
     settingsVersion = settingsVersion + 1
+    ApplyBackgroundToAll()
     if RefreshOptions then RefreshOptions() end
 end
 
@@ -918,6 +1030,32 @@ local function CreateSection(parent, text, y)
     return label
 end
 
+-- 0-100 slider. Uses the game's template when it exists, otherwise a
+-- plain slider so the window still works.
+local function CreateSlider(parent, name)
+    local ok, slider = pcall(CreateFrame, "Slider", name, parent, "OptionsSliderTemplate")
+    if not ok or not slider then
+        slider = CreateFrame("Slider", name, parent)
+        slider:SetOrientation("HORIZONTAL")
+        slider:SetThumbTexture("Interface\\Buttons\\UI-SliderBar-Button-Horizontal")
+        local track = slider:CreateTexture(nil, "BACKGROUND")
+        track:SetColorTexture(0.25, 0.25, 0.25, 0.9)
+        track:SetPoint("LEFT")
+        track:SetPoint("RIGHT")
+        track:SetHeight(6)
+    end
+    slider:SetSize(160, 16)
+    slider:SetMinMaxValues(0, 100)
+    slider:SetValueStep(5)
+    if slider.SetObeyStepOnDrag then slider:SetObeyStepOnDrag(true) end
+    -- The template's own labels are not used.
+    for _, suffix in ipairs({ "Low", "High", "Text" }) do
+        local label = slider[suffix] or _G[name .. suffix]
+        if type(label) == "table" and label.SetText then label:SetText("") end
+    end
+    return slider
+end
+
 local function CreateOptionsFrame()
     local ok, f = pcall(CreateFrame, "Frame", "StatHighlightOptionsFrame", UIParent, "BasicFrameTemplateWithInset")
     if not ok or not f then
@@ -928,7 +1066,7 @@ local function CreateOptionsFrame()
         local close = CreateFrame("Button", nil, f, "UIPanelCloseButton")
         close:SetPoint("TOPRIGHT", 2, 2)
     end
-    f:SetSize(560, 566)
+    f:SetSize(560, 618)
     f:SetPoint("CENTER")
     f:SetFrameStrata("DIALOG")
     f:SetMovable(true)
@@ -1035,11 +1173,35 @@ local function CreateOptionsFrame()
     end)
     AttachHelp(durationSwatch, L.DURATION_COLOR_TITLE, L.DURATION_COLOR_HELP)
 
-    -- 4) Stats -----------------------------------------------------------
-    CreateSection(f, L.SECTION_STATS, -188)
+    -- 4) Tooltip background ----------------------------------------------
+    CreateSection(f, L.SECTION_BACKGROUND, -188)
+
+    local bgCheck = CreateCheck(f, L.BG_CHECK)
+    bgCheck:SetPoint("TOPLEFT", 16, -206)
+    bgCheck:SetScript("OnClick", function(self)
+        db.background.enabled = self:GetChecked() and true or false
+        OnSettingsChanged()
+    end)
+    AttachHelp(bgCheck, L.SECTION_BACKGROUND, L.BG_HELP)
+
+    local bgSlider = CreateSlider(f, "StatHighlightOpacitySlider")
+    bgSlider:SetPoint("TOPLEFT", 300, -211)
+    local bgValue = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    bgValue:SetPoint("LEFT", bgSlider, "RIGHT", 10, 0)
+    local refreshing = false
+    bgSlider:SetScript("OnValueChanged", function(self, value)
+        if refreshing then return end
+        value = math.floor(value / 5 + 0.5) * 5
+        db.background.alpha = value / 100
+        OnSettingsChanged()
+    end)
+    AttachHelp(bgSlider, L.BG_OPACITY, L.BG_OPACITY_HELP)
+
+    -- 5) Stats -----------------------------------------------------------
+    CreateSection(f, L.SECTION_STATS, -240)
 
     local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    hint:SetPoint("TOPLEFT", 20, -206)
+    hint:SetPoint("TOPLEFT", 20, -258)
     hint:SetText(L.STATS_HINT)
 
     local rows = {}
@@ -1048,7 +1210,7 @@ local function CreateOptionsFrame()
         local col = (i <= perColumn) and 0 or 1
         local rowIndex = (i - 1) % perColumn
         local x = 16 + col * 270
-        local y = -224 - rowIndex * 25
+        local y = -276 - rowIndex * 25
 
         local check = CreateCheck(f, cat.label)
         check:SetPoint("TOPLEFT", x, y)
@@ -1093,6 +1255,17 @@ local function CreateOptionsFrame()
         for key, check in pairs(typeChecks) do
             check:SetChecked(db.types[key])
         end
+
+        local percent = math.floor(db.background.alpha * 100 + 0.5)
+        bgCheck:SetChecked(db.background.enabled)
+        refreshing = true
+        bgSlider:SetValue(percent)
+        refreshing = false
+        bgValue:SetText(L.BG_OPACITY .. ": " .. percent .. "%")
+        local bgOn = db.background.enabled
+        bgSlider:EnableMouse(bgOn)
+        bgSlider:SetAlpha(bgOn and 1 or 0.4)
+        bgValue:SetAlpha(bgOn and 1 or 0.4)
         generalSwatch.fill:SetColorTexture(db.color.r, db.color.g, db.color.b, 1)
         for _, row in ipairs(rows) do
             local on = IsCategoryEnabled(row.key)
@@ -1197,3 +1370,4 @@ ns.FindAllSpans = FindAllSpans
 ns.BuildHighlighted = BuildHighlighted
 ns.ItemAllowed = ItemAllowed
 ns.L = L
+ns.ApplyTooltipBackground = ApplyTooltipBackground

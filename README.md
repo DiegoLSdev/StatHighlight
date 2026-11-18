@@ -42,7 +42,7 @@ Health, mana, rage/energy, stamina, spirit, strength, agility, intellect, all st
 
 > `/sh` cannot be used because WoW already uses it for `/yell`.
 
-The options window has four sections:
+The options window has five sections:
 
 - **General**: *Enabled*, *General color* (click the color box) and *Reset all*.
 - **Where to highlight**:
@@ -50,6 +50,7 @@ The options window has four sections:
   - *Bonfire and other items with an effect*: items with a "Use:" line or that are thrown into a bonfire (on).
   - *Gear*: weapons and armor (off).
 - **Effect duration**: highlights *"for 30 min"*, *"1 h 30 min"*, *"10 sec"*… in its own color (light blue by default; right-click to go back to it). Cooldowns and intervals such as *"every 5 sec"* are not highlighted.
+- **Tooltip background**: *Change background opacity* plus a 0–100% slider, for when the game world showing through the tooltip makes the text hard to read. Off by default (the game's own background is used).
 - **Stats**: each stat has a checkbox and its own color box: **click** = own color, **right-click** = back to the general color.
 
 Hover over any option to see an explanation. Options are saved between sessions (`StatHighlightDB`).
@@ -61,6 +62,12 @@ Hover over any option to see an explanation. Options are saved between sessions 
 - If a line is not highlighted, type `/shl debug`, hover over the item and open an [issue](../../issues) with a screenshot of the chat.
 
 ## Changelog
+
+### Unreleased
+
+- Campfire items: amounts written as *"12 p. más de intelecto"* and *"un 8% más de estadísticas"* (and *"12 more Intellect"*, *"8% more stats"*) are now highlighted.
+- Requirement lines such as *"Requiere Pesca (20)"* are no longer highlighted.
+- New: tooltip background opacity option.
 
 ### 1.1.0
 
