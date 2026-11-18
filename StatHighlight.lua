@@ -53,20 +53,20 @@ local L = {
     DURATION_COLOR_HELP = "Click: choose a color.\nRight-click: back to the default color (light blue).",
 
     SECTION_BACKGROUND = "Tooltip background",
-    BG_CHECK = "Change background opacity",
-    BG_HELP = "Makes the background of tooltips more or less see-through. When off, the game's default is used.",
+    BG_CHECK = "More opaque background",
+    BG_HELP = "Makes the background of tooltips less see-through, in its own color. When off, the game's default is used.",
     BG_OPACITY = "Opacity",
-    BG_OPACITY_HELP = "100% = solid background, the game world does not show through.\n0% = fully transparent.",
+    BG_OPACITY_HELP = "0% = the game's normal background.\n100% = fully solid, the game world does not show through.",
 
     SECTION_STATS = "Stats",
-    STATS_HINT = "Checkbox: enable.  Color box: click = own color, right-click = general.  Star: glow.",
+    STATS_HINT = "Checkbox: enable.  Color box: click = own color, right-click = general.  B: bold.",
     STAT_OWN_COLOR = "Has its own color.",
     STAT_GENERAL_COLOR = "Uses the general color.",
     STAT_COLOR_HELP = "\nClick: choose its own color.\nRight-click: back to the general color.",
-    GLOW_TITLE = "Glow",
-    GLOW_ON = "On.",
-    GLOW_OFF = "Off.",
-    GLOW_HELP = "\nClick: turn on or off a glowing outline, in the highlight color, around its letters in tooltips.",
+    BOLD_TITLE = "Bold",
+    BOLD_ON = "On.",
+    BOLD_OFF = "Off.",
+    BOLD_HELP = "\nClick: show its words in bold in tooltips, or back to normal.",
 }
 
 if IS_SPANISH then
@@ -107,20 +107,20 @@ if IS_SPANISH then
     L.DURATION_COLOR_HELP = "Clic: elegir color.\nClic derecho: volver al color por defecto (azul claro)."
 
     L.SECTION_BACKGROUND = "Fondo del tooltip"
-    L.BG_CHECK = "Cambiar la opacidad del fondo"
-    L.BG_HELP = "Hace que el fondo de los tooltips sea más o menos transparente. Desactivado, se usa el del juego."
+    L.BG_CHECK = "Fondo más opaco"
+    L.BG_HELP = "Hace que el fondo de los tooltips sea menos transparente, con su mismo color. Desactivado, se usa el del juego."
     L.BG_OPACITY = "Opacidad"
-    L.BG_OPACITY_HELP = "100% = fondo sólido, no se ve el mundo del juego a través.\n0% = totalmente transparente."
+    L.BG_OPACITY_HELP = "0% = el fondo normal del juego.\n100% = totalmente sólido, no se ve el mundo del juego a través."
 
     L.SECTION_STATS = "Estadísticas"
-    L.STATS_HINT = "Casilla: activar.  Color: clic = color propio, clic derecho = general.  Estrella: brillo."
+    L.STATS_HINT = "Casilla: activar.  Color: clic = color propio, clic derecho = general.  B: negrita."
     L.STAT_OWN_COLOR = "Tiene color propio."
     L.STAT_GENERAL_COLOR = "Usa el color general."
     L.STAT_COLOR_HELP = "\nClic: elegir color propio.\nClic derecho: volver al color general."
-    L.GLOW_TITLE = "Brillo"
-    L.GLOW_ON = "Activado."
-    L.GLOW_OFF = "Desactivado."
-    L.GLOW_HELP = "\nClic: activar o desactivar un contorno brillante, del color del resaltado, alrededor de sus letras en los tooltips."
+    L.BOLD_TITLE = "Negrita"
+    L.BOLD_ON = "Activado."
+    L.BOLD_OFF = "Desactivado."
+    L.BOLD_HELP = "\nClic: mostrar sus palabras en negrita en los tooltips, o volver a normal."
 end
 
 local MAX_GAP = 45 -- max bytes between a stat name and its amount
@@ -317,7 +317,8 @@ local function DefaultTypes()
     }
 end
 
--- Tooltip background opacity. Off by default: the game's own look is kept.
+-- Solid tooltip background. Off by default: the game's own look is kept.
+-- alpha = how solid the extra layer is (0 = game's background, 1 = solid).
 local function DefaultBackground()
     return { enabled = false, alpha = 1 }
 end
@@ -353,6 +354,13 @@ local function InitDB()
     if type(db.background) ~= "table" then db.background = DefaultBackground() end
     if type(db.background.alpha) ~= "number" then db.background.alpha = 1 end
     db.background.alpha = math.max(0, math.min(1, db.background.alpha))
+    -- Unreleased builds called bold "glow".
+    for _, s in pairs(db.stats) do
+        if type(s) == "table" and s.glow ~= nil then
+            s.bold = s.glow or nil
+            s.glow = nil
+        end
+    end
 end
 
 local function StatSettings(key)
@@ -378,10 +386,10 @@ local function EffectiveColor(key)
     return (db and db.color) or DEFAULT_COLOR
 end
 
--- Glow is off unless turned on for that stat.
-local function IsGlowEnabled(key)
+-- Bold is off unless turned on for that stat.
+local function IsBoldEnabled(key)
     local s = db and db.stats[key]
-    return s ~= nil and s.glow == true
+    return s ~= nil and s.bold == true
 end
 
 local function ColorCode(c)
@@ -821,22 +829,20 @@ local function DebugDump(tooltip, item, classID, regions)
 end
 
 ------------------------------------------------------------------------
--- Letter glow
--- A tooltip line is a single FontString, so its letters cannot get their
--- own outline color. Instead, copies of the glowing words are drawn
--- under the real text, shifted 1-2 pixels around it in the glow color,
--- which gives the letters a colored halo. To place the copies exactly
--- on the words, the line is measured and wrapped the way the game does.
--- If that layout does not match the game's, the line gets no glow.
+-- Bold words
+-- A tooltip line is a single FontString with a single font, so part of
+-- it cannot use a bold font. Instead, a copy of each bold word is drawn
+-- over the real text, 1 pixel to the right and in the same color, which
+-- makes its strokes thicker (faux bold). To place the copies exactly on
+-- the words, the line is measured and wrapped the way the game does.
+-- If that layout does not match the game's, the line is left as is.
 ------------------------------------------------------------------------
-local GLOW_OFFSETS = { -- x, y, alpha
-    { 1, 0, 0.6 }, { -1, 0, 0.6 }, { 0, 1, 0.6 }, { 0, -1, 0.6 },
-    { 1, 1, 0.45 }, { 1, -1, 0.45 }, { -1, 1, 0.45 }, { -1, -1, 0.45 },
-    { 2, 0, 0.2 }, { -2, 0, 0.2 }, { 0, 2, 0.2 }, { 0, -2, 0.2 },
+local BOLD_OFFSETS = { -- x, y, alpha
+    { 1, 0, 1 },
 }
-local lineGlow = setmetatable({}, { __mode = "k" })     -- FontString -> glowing spans
-local glowLayouts = setmetatable({}, { __mode = "k" })  -- FontString -> cached layout
-local glowPool = setmetatable({}, { __mode = "k" })     -- tooltip -> FontStrings
+local lineBold = setmetatable({}, { __mode = "k" })     -- FontString -> bold spans
+local boldLayouts = setmetatable({}, { __mode = "k" })  -- FontString -> cached layout
+local boldPool = setmetatable({}, { __mode = "k" })     -- tooltip -> FontStrings
 
 -- Width of a text in a given font. Replaceable by the tests.
 local measurer
@@ -852,11 +858,11 @@ local function DefaultTextWidth(font, size, flags, s)
 end
 local TextWidth = DefaultTextWidth
 
--- Spans of a line that must glow, each with its color.
-local function GlowSpansFor(spans)
+-- Spans of a line that must be bold, each with its color.
+local function BoldSpansFor(spans)
     local out
     for _, span in ipairs(spans) do
-        if IsGlowEnabled(span[3]) then
+        if IsBoldEnabled(span[3]) then
             out = out or {}
             out[#out + 1] = { span[1], span[2], color = EffectiveColor(span[3]) }
         end
@@ -906,7 +912,7 @@ end
 
 -- Pieces of the visible range vs..ve, one per wrapped line, with the
 -- x offset where each piece starts. line is 0-based.
-local function GlowPieces(visible, lines, vs, ve, measure)
+local function BoldPieces(visible, lines, vs, ve, measure)
     local pieces = {}
     for index, line in ipairs(lines) do
         local s, e = math.max(vs, line[1]), math.min(ve, line[2])
@@ -924,9 +930,9 @@ local function GlowPieces(visible, lines, vs, ve, measure)
     return pieces
 end
 
--- Where to draw the glow of one line. Returns nil when it cannot be
+-- Where to draw the bold of one line. Returns nil when it cannot be
 -- placed reliably.
-local function LayoutGlow(region, glowSpans)
+local function LayoutBold(region, boldSpans)
     local text = originals[region]
     if not text or not region.GetFont then return nil end
     local font, size, flags = region:GetFont()
@@ -954,10 +960,10 @@ local function LayoutGlow(region, glowSpans)
     local step = (height + spacing) / #lines
 
     local pieces = {}
-    for _, span in ipairs(glowSpans) do
+    for _, span in ipairs(boldSpans) do
         local vs, ve = map[span[1]], map[span[2]]
         if vs and ve then
-            for _, p in ipairs(GlowPieces(visible, lines, vs, ve, measure)) do
+            for _, p in ipairs(BoldPieces(visible, lines, vs, ve, measure)) do
                 p.x = p.x + x0
                 p.y = -p.line * step
                 p.color = span.color
@@ -968,21 +974,21 @@ local function LayoutGlow(region, glowSpans)
     return { pieces = pieces, font = font, size = size, flags = flags }
 end
 
-local function HideGlows(tooltip, from)
-    local pool = glowPool[tooltip]
+local function HideBolds(tooltip, from)
+    local pool = boldPool[tooltip]
     if not pool then return end
     for i = from or 1, #pool do pool[i]:Hide() end
 end
 
-local function GlowString(tooltip, index)
-    local pool = glowPool[tooltip]
+local function BoldString(tooltip, index)
+    local pool = boldPool[tooltip]
     if not pool then
         pool = {}
-        glowPool[tooltip] = pool
+        boldPool[tooltip] = pool
     end
     if not pool[index] then
-        local fs = tooltip:CreateFontString(nil, "ARTWORK")
-        if fs.SetDrawLayer then fs:SetDrawLayer("ARTWORK", -8) end -- under the real text
+        local fs = tooltip:CreateFontString(nil, "OVERLAY") -- over the real text
+        -- No shadow: the real text's shadow already shows below.
         if fs.SetShadowOffset then fs:SetShadowOffset(0, 0) end
         if fs.SetWordWrap then fs:SetWordWrap(false) end
         pool[index] = fs
@@ -990,26 +996,26 @@ local function GlowString(tooltip, index)
     return pool[index]
 end
 
-local function UpdateGlows(tooltip, regions)
+local function UpdateBolds(tooltip, regions)
     if not tooltip.CreateFontString then return end
     local used = 0
     for _, region in ipairs(regions) do
-        local glowSpans = lineGlow[region]
+        local boldSpans = lineBold[region]
         local current = region.GetText and region:GetText()
-        if glowSpans and highlighted[region] == current
+        if boldSpans and highlighted[region] == current
             and (not region.IsShown or region:IsShown()) then
             local width = region:GetWidth()
-            local layout = glowLayouts[region]
+            local layout = boldLayouts[region]
             if not layout or layout.text ~= current or layout.width ~= width then
-                layout = LayoutGlow(region, glowSpans) or { pieces = {} }
+                layout = LayoutBold(region, boldSpans) or { pieces = {} }
                 layout.text, layout.width = current, width
-                glowLayouts[region] = layout
+                boldLayouts[region] = layout
             end
             for _, piece in ipairs(layout.pieces) do
                 local c = piece.color
-                for _, o in ipairs(GLOW_OFFSETS) do
+                for _, o in ipairs(BOLD_OFFSETS) do
                     used = used + 1
-                    local fs = GlowString(tooltip, used)
+                    local fs = BoldString(tooltip, used)
                     fs:SetFont(layout.font, layout.size, layout.flags)
                     fs:SetText(piece.text)
                     fs:SetTextColor(c.r, c.g, c.b, o[3])
@@ -1020,7 +1026,7 @@ local function UpdateGlows(tooltip, regions)
             end
         end
     end
-    HideGlows(tooltip, used + 1)
+    HideBolds(tooltip, used + 1)
 end
 
 local function HighlightTooltip(tooltip, data)
@@ -1049,22 +1055,22 @@ local function HighlightTooltip(tooltip, data)
                         originals[region] = text
                         highlighted[region] = newText
                         regionVersion[region] = settingsVersion
-                        lineGlow[region] = GlowSpansFor(spans)
-                        glowLayouts[region] = nil
+                        lineBold[region] = BoldSpansFor(spans)
+                        boldLayouts[region] = nil
                         if newText ~= region:GetText() then region:SetText(newText) end
                     else
                         if ours then region:SetText(text) end
                         originals[region] = nil
                         highlighted[region] = nil
                         regionVersion[region] = nil
-                        lineGlow[region] = nil
-                        glowLayouts[region] = nil
+                        lineBold[region] = nil
+                        boldLayouts[region] = nil
                     end
                 end
             end
         end
     end
-    UpdateGlows(tooltip, regions)
+    UpdateBolds(tooltip, regions)
 end
 
 -- Hook in every available way: some tooltips (bags, vendor...) do not go
@@ -1084,57 +1090,63 @@ local function TooltipShowsItem(tooltip)
 end
 
 ------------------------------------------------------------------------
--- Tooltip background opacity
--- Only the alpha of the background changes; its color stays the game's.
--- The original color is remembered so it can be restored when turned off.
+-- Tooltip background
+-- The game's background texture is see-through even at full alpha, so
+-- the game's own background is left untouched and a solid layer in the
+-- same color is added over it (under the border and the text). The
+-- slider sets how opaque that layer is: 0% = the game's background,
+-- 100% = fully solid.
 ------------------------------------------------------------------------
-local originalBackground = setmetatable({}, { __mode = "k" })
+local FALLBACK_BACKGROUND = { 0.09, 0.09, 0.19 } -- the game's usual tooltip color
+local backgroundLayers = setmetatable({}, { __mode = "k" })
+
+-- Color the game currently uses for this tooltip's background.
+local function BackgroundColor(tooltip, center)
+    local r, g, b
+    if center and center.GetVertexColor then
+        r, g, b = center:GetVertexColor()
+    elseif tooltip.GetBackdropColor then
+        r, g, b = tooltip:GetBackdropColor()
+    end
+    if type(r) ~= "number" then return unpack(FALLBACK_BACKGROUND) end
+    return r, g, b
+end
 
 local function ApplyTooltipBackground(tooltip)
     if not db or not tooltip then return end
     if tooltip.IsForbidden and tooltip:IsForbidden() then return end
+    local layer = backgroundLayers[tooltip]
+    local strength = db.background.enabled and db.background.alpha or 0
+    if strength <= 0 then
+        if layer then layer:Hide() end
+        return
+    end
+
     local center = tooltip.NineSlice and tooltip.NineSlice.Center
-    if center and not center.GetVertexColor then center = nil end
-    local useBackdrop = not center and tooltip.GetBackdropColor and tooltip.SetBackdropColor
-
-    local function Set(r, g, b, a)
-        if center then
-            center:SetVertexColor(r, g, b, a)
-        elseif useBackdrop then
-            tooltip:SetBackdropColor(r, g, b, a)
+    if not layer then
+        -- On the NineSlice frame, just above its center piece; otherwise on
+        -- the tooltip itself, above the old-style backdrop.
+        local host = (center and tooltip.NineSlice.CreateTexture) and tooltip.NineSlice or tooltip
+        if not host.CreateTexture then return end
+        layer = host:CreateTexture(nil, "BACKGROUND", nil, host == tooltip and 7 or -7)
+        layer:ClearAllPoints()
+        if center and host ~= tooltip then
+            layer:SetAllPoints(center)
+        else
+            layer:SetPoint("TOPLEFT", tooltip, "TOPLEFT", 3, -3)
+            layer:SetPoint("BOTTOMRIGHT", tooltip, "BOTTOMRIGHT", -3, 3)
         end
+        backgroundLayers[tooltip] = layer
     end
-
-    local original = originalBackground[tooltip]
-    if db.background.enabled then
-        if not original then
-            local r, g, b, a
-            if center then
-                r, g, b, a = center:GetVertexColor()
-            elseif useBackdrop then
-                r, g, b, a = tooltip:GetBackdropColor()
-            end
-            if not r then return end
-            original = { r, g, b, a or 1 }
-            originalBackground[tooltip] = original
-        end
-        Set(original[1], original[2], original[3], db.background.alpha)
-    elseif original then
-        Set(original[1], original[2], original[3], original[4])
-        originalBackground[tooltip] = nil
-    end
+    local r, g, b = BackgroundColor(tooltip, center)
+    layer:SetColorTexture(r, g, b, strength)
+    layer:Show()
 end
 
 -- The game resets the background style when a tooltip is set up again.
 for _, styleFunc in ipairs({ "GameTooltip_SetBackdropStyle", "SharedTooltip_SetBackdropStyle" }) do
     if hooksecurefunc and type(_G[styleFunc]) == "function" then
-        hooksecurefunc(styleFunc, function(tooltip)
-            if originalBackground[tooltip] then
-                -- The style may have changed the color: read it again.
-                originalBackground[tooltip] = nil
-            end
-            ApplyTooltipBackground(tooltip)
-        end)
+        hooksecurefunc(styleFunc, function(tooltip) ApplyTooltipBackground(tooltip) end)
     end
 end
 
@@ -1153,7 +1165,7 @@ for _, name in ipairs(TOOLTIPS) do
         end
         frame:HookScript("OnShow", function(self)
             ApplyTooltipBackground(self)
-            if TooltipShowsItem(self) then HighlightTooltip(self) else HideGlows(self) end
+            if TooltipShowsItem(self) then HighlightTooltip(self) else HideBolds(self) end
         end)
         -- Re-check every 0.2 s while visible (text that arrives late).
         local elapsed = 0
@@ -1162,7 +1174,7 @@ for _, name in ipairs(TOOLTIPS) do
             if elapsed < 0.2 then return end
             elapsed = 0
             ApplyTooltipBackground(self)
-            if TooltipShowsItem(self) then HighlightTooltip(self) else HideGlows(self) end
+            if TooltipShowsItem(self) then HighlightTooltip(self) else HideBolds(self) end
         end)
     end
 end
@@ -1239,37 +1251,29 @@ local function AttachHelp(widget, title, line)
     widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
--- Small star button that turns the line glow on or off for one stat.
-local function CreateGlowToggle(parent)
+-- Small "B" button that turns bold on or off for one stat.
+local function CreateBoldToggle(parent)
     local button = CreateFrame("Button", nil, parent)
     button:SetSize(18, 18)
     local border = button:CreateTexture(nil, "BACKGROUND")
     border:SetAllPoints()
     border:SetColorTexture(0.05, 0.05, 0.05, 1)
-    local star = button:CreateTexture(nil, "ARTWORK")
-    star:SetPoint("TOPLEFT", -3, 3)
-    star:SetPoint("BOTTOMRIGHT", 3, -3)
-    if star:SetTexture("Interface\\Cooldown\\star4") == false then
-        -- Texture missing: a small square instead.
-        star:ClearAllPoints()
-        star:SetPoint("TOPLEFT", 5, -5)
-        star:SetPoint("BOTTOMRIGHT", -5, 5)
-        star:SetColorTexture(1, 1, 1, 1)
-    end
-    if star.SetBlendMode then star:SetBlendMode("ADD") end
-    button.star = star
+    local letter = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    letter:SetPoint("CENTER", 1, 0)
+    letter:SetText("B")
+    button.letter = letter
     return button
 end
 
--- Wires a glow toggle to the "glow" setting of one stat.
-local function SetupGlowToggle(button, key, title)
+-- Wires a bold toggle to the "bold" setting of one stat.
+local function SetupBoldToggle(button, key, title)
     local function ShowHelp(self)
-        local state = IsGlowEnabled(key) and L.GLOW_ON or L.GLOW_OFF
-        ShowHelpTooltip(self, L.GLOW_TITLE .. ": " .. title, state .. L.GLOW_HELP)
+        local state = IsBoldEnabled(key) and L.BOLD_ON or L.BOLD_OFF
+        ShowHelpTooltip(self, L.BOLD_TITLE .. ": " .. title, state .. L.BOLD_HELP)
     end
     button:SetScript("OnClick", function(self)
         local s = StatSettings(key)
-        s.glow = (not s.glow) or nil
+        s.bold = (not s.bold) or nil
         OnSettingsChanged()
         ShowHelp(self)
     end)
@@ -1277,13 +1281,13 @@ local function SetupGlowToggle(button, key, title)
     button:SetScript("OnLeave", function() GameTooltip:Hide() end)
 end
 
-local function RefreshGlowToggle(button, key, c)
-    if IsGlowEnabled(key) then
-        button.star:SetVertexColor(c.r, c.g, c.b, 1)
-        button.star:SetAlpha(1)
+local function RefreshBoldToggle(button, key, c)
+    if IsBoldEnabled(key) then
+        button.letter:SetTextColor(c.r, c.g, c.b)
+        button.letter:SetAlpha(1)
     else
-        button.star:SetVertexColor(0.6, 0.6, 0.6, 1)
-        button.star:SetAlpha(0.3)
+        button.letter:SetTextColor(0.6, 0.6, 0.6)
+        button.letter:SetAlpha(0.4)
     end
 end
 
@@ -1443,9 +1447,9 @@ local function CreateOptionsFrame()
     end)
     AttachHelp(durationSwatch, L.DURATION_COLOR_TITLE, L.DURATION_COLOR_HELP)
 
-    local durationGlow = CreateGlowToggle(f)
-    durationGlow:SetPoint("LEFT", durationSwatch, "RIGHT", 6, 0)
-    SetupGlowToggle(durationGlow, DURATION_KEY, L.DURATION_TITLE)
+    local durationBold = CreateBoldToggle(f)
+    durationBold:SetPoint("LEFT", durationSwatch, "RIGHT", 6, 0)
+    SetupBoldToggle(durationBold, DURATION_KEY, L.DURATION_TITLE)
 
     -- 4) Tooltip background ----------------------------------------------
     CreateSection(f, L.SECTION_BACKGROUND, -188)
@@ -1518,14 +1522,14 @@ local function CreateOptionsFrame()
         end)
         swatch:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-        local glow = CreateGlowToggle(f)
-        glow:SetPoint("TOPLEFT", x + 236, y - 2)
-        SetupGlowToggle(glow, cat.key, cat.label)
+        local bold = CreateBoldToggle(f)
+        bold:SetPoint("TOPLEFT", x + 236, y - 2)
+        SetupBoldToggle(bold, cat.key, cat.label)
 
-        rows[#rows + 1] = { key = cat.key, check = check, swatch = swatch, glow = glow }
+        rows[#rows + 1] = { key = cat.key, check = check, swatch = swatch, bold = bold }
     end
     -- The duration row is refreshed like a stat row.
-    rows[#rows + 1] = { key = DURATION_KEY, check = durationCheck, swatch = durationSwatch, glow = durationGlow }
+    rows[#rows + 1] = { key = DURATION_KEY, check = durationCheck, swatch = durationSwatch, bold = durationBold }
 
     RefreshOptions = function()
         if not db then return end
@@ -1550,7 +1554,7 @@ local function CreateOptionsFrame()
             local c = EffectiveColor(row.key)
             row.check:SetChecked(on)
             row.swatch.fill:SetColorTexture(c.r, c.g, c.b, 1)
-            RefreshGlowToggle(row.glow, row.key, c)
+            RefreshBoldToggle(row.bold, row.key, c)
             if on then
                 row.check.label:SetTextColor(c.r, c.g, c.b)
             else
@@ -1653,6 +1657,6 @@ ns.ApplyTooltipBackground = ApplyTooltipBackground
 ns.HighlightTooltip = HighlightTooltip
 ns.OnSettingsChanged = OnSettingsChanged
 ns.WrapLines = WrapLines
-ns.GlowPieces = GlowPieces
+ns.BoldPieces = BoldPieces
 ns.VisibleText = VisibleText
 ns.SetTextWidth = function(fn) TextWidth = fn or DefaultTextWidth end

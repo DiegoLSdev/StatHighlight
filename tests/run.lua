@@ -142,40 +142,58 @@ Expect("Requires Fishing (20)", "")
 Expect("Tiempo de reutilización restante: 58 min 23 s", "")
 Expect("Cooldown remaining: 58 min 23 sec", "")
 
--- Tooltip background opacity ------------------------------------------------
+-- Tooltip background ---------------------------------------------------------
 do
-    local function FakeTexture(r, g, b, a)
-        local t = { color = { r, g, b, a } }
-        function t:GetVertexColor() return unpack(self.color) end
-        function t:SetVertexColor(nr, ng, nb, na) self.color = { nr, ng, nb, na } end
+    local created = {}
+    local function FakeLayer()
+        local t = { shown = false }
+        function t:ClearAllPoints() end
+        function t:SetAllPoints(target) self.target = target end
+        function t:SetPoint() end
+        function t:SetColorTexture(r, g, b, a) self.color = { r, g, b, a } end
+        function t:Show() self.shown = true end
+        function t:Hide() self.shown = false end
+        created[#created + 1] = t
         return t
     end
-    local tooltip = { NineSlice = { Center = FakeTexture(0.09, 0.09, 0.19, 0.8) } }
-    local center = tooltip.NineSlice.Center
+    local center = { color = { 0.09, 0.09, 0.19, 0.8 } }
+    function center:GetVertexColor() return unpack(self.color) end
+    local nineSlice = { Center = center }
+    function nineSlice:CreateTexture() return FakeLayer() end
+    local tooltip = { NineSlice = nineSlice }
 
     ns.ApplyTooltipBackground(tooltip)
-    Check("background: untouched when off", center.color[4], 0.8)
+    Check("background: nothing added when off", #created, 0)
 
     StatHighlightDB.background = { enabled = true, alpha = 1 }
     ns.ApplyTooltipBackground(tooltip)
-    Check("background: solid when on at 100%", center.color[4], 1)
-    Check("background: keeps the game's color", center.color[3], 0.19)
+    local layer = created[1]
+    Check("background: solid layer at 100%", layer and layer.color[4], 1)
+    Check("background: in the game's color", layer and layer.color[3], 0.19)
+    Check("background: covers the center piece", layer and layer.target, center)
+    Check("background: game's own background untouched", center.color[4], 0.8)
 
     StatHighlightDB.background.alpha = 0.35
     ns.ApplyTooltipBackground(tooltip)
-    Check("background: follows the slider", center.color[4], 0.35)
+    Check("background: follows the slider", layer.color[4], 0.35)
+    Check("background: layer is reused", #created, 1)
 
-    StatHighlightDB.background.enabled = false
+    StatHighlightDB.background.alpha = 0
     ns.ApplyTooltipBackground(tooltip)
-    Check("background: restored when turned off", center.color[4], 0.8)
+    Check("background: 0% = game's background", layer.shown, false)
+
+    StatHighlightDB.background = { enabled = false, alpha = 1 }
+    ns.ApplyTooltipBackground(tooltip)
+    Check("background: hidden when turned off", layer.shown, false)
 
     -- Old-style tooltips use a backdrop instead of NineSlice.
     local old = { bg = { 0, 0, 0, 0.7 } }
     function old:GetBackdropColor() return unpack(self.bg) end
-    function old:SetBackdropColor(r, g, b, a) self.bg = { r, g, b, a } end
+    function old:CreateTexture() return FakeLayer() end
     StatHighlightDB.background = { enabled = true, alpha = 0.5 }
     ns.ApplyTooltipBackground(old)
-    Check("background: backdrop tooltips", old.bg[4], 0.5)
+    Check("background: backdrop tooltips", created[2] and created[2].color[4], 0.5)
+    Check("background: backdrop untouched", old.bg[4], 0.7)
 
     StatHighlightDB = { background = { enabled = true, alpha = 7 } }
     ns.InitDB()
@@ -183,9 +201,15 @@ do
     StatHighlightDB = { }
     ns.InitDB()
     Check("background: off by default", StatHighlightDB.background.enabled, false)
+
+    -- Unreleased builds saved bold as "glow".
+    StatHighlightDB = { stats = { health = { glow = true } } }
+    ns.InitDB()
+    Check("migration: glow -> bold", StatHighlightDB.stats.health.bold, true)
+    Check("migration: removes glow", StatHighlightDB.stats.health.glow, nil)
 end
 
--- Line glow -----------------------------------------------------------------
+-- Line bold -----------------------------------------------------------------
 do
     StatHighlightDB = nil
     ns.InitDB()
@@ -196,12 +220,12 @@ do
 
     -- Layout helpers.
     local visible, map = ns.VisibleText("|cff00ff00Usar: 5 p.|r ok")
-    Check("glow: visible text drops color codes", visible, "Usar: 5 p. ok")
-    Check("glow: position map skips color codes", map[11], 1)
+    Check("bold: visible text drops color codes", visible, "Usar: 5 p. ok")
+    Check("bold: position map skips color codes", map[11], 1)
     local wrapped = ns.WrapLines("aaa bbb ccc", 42, measure)
-    Check("glow: word wrap", #wrapped .. ":" .. wrapped[2][1] .. "-" .. wrapped[2][2], "2:9-11")
-    local pieces = ns.GlowPieces("aaa bbb ccc", wrapped, 5, 11, measure)
-    Check("glow: span split across lines",
+    Check("bold: word wrap", #wrapped .. ":" .. wrapped[2][1] .. "-" .. wrapped[2][2], "2:9-11")
+    local pieces = ns.BoldPieces("aaa bbb ccc", wrapped, 5, 11, measure)
+    Check("bold: span split across lines",
         pieces[1].text .. "@" .. pieces[1].line .. "," .. pieces[1].x .. " " ..
         pieces[2].text .. "@" .. pieces[2].line .. "," .. pieces[2].x,
         "bbb@0,24 ccc@1,0")
@@ -249,40 +273,40 @@ do
         end
         return n, first
     end
-    local copies = 12 -- outline copies per glowing piece
+    local copies = 1 -- copies per bold piece
 
     ns.HighlightTooltip(tooltip)
-    Check("glow: off by default", (Shown()), 0)
+    Check("bold: off by default", (Shown()), 0)
 
-    StatHighlightDB.stats.health = { glow = true }
+    StatHighlightDB.stats.health = { bold = true }
     ns.OnSettingsChanged()
     ns.HighlightTooltip(tooltip)
-    local n, glow = Shown()
-    Check("glow: outline copies for one stat", n, copies)
-    Check("glow: only the stat's words", glow and glow.text, "530 p. de salud")
-    Check("glow: placed on the words", glow and glow.x, 90 + 1) -- "Usar: Restaura " + 1 px
-    Check("glow: uses the stat's color", glow and glow.color[3], 0.290)
+    local n, bold = Shown()
+    Check("bold: one copy for one stat", n, copies)
+    Check("bold: only the stat's words", bold and bold.text, "530 p. de salud")
+    Check("bold: placed on the words", bold and bold.x, 90 + 1) -- "Usar: Restaura " + 1 px
+    Check("bold: uses the stat's color", bold and bold.color[3], 0.290)
 
     StatHighlightDB.stats.health = nil
-    StatHighlightDB.stats.duration = { glow = true }
+    StatHighlightDB.stats.duration = { bold = true }
     ns.OnSettingsChanged()
     ns.HighlightTooltip(tooltip)
-    n, glow = Shown()
-    Check("glow: duration words", glow and glow.text, "30 s")
-    Check("glow: duration glow uses the duration color", glow and glow.color[1], 0.400)
-    Check("glow: font strings are reused", #strings, copies)
+    n, bold = Shown()
+    Check("bold: duration words", bold and bold.text, "30 s")
+    Check("bold: duration uses the duration color", bold and bold.color[1], 0.400)
+    Check("bold: font strings are reused", #strings, copies)
 
     StatHighlightDB.stats.duration = nil
     ns.OnSettingsChanged()
     ns.HighlightTooltip(tooltip)
-    Check("glow: hidden when turned off", (Shown()), 0)
+    Check("bold: hidden when turned off", (Shown()), 0)
 
-    StatHighlightDB.stats.health = { glow = true }
+    StatHighlightDB.stats.health = { bold = true }
     StatHighlightDB.enabled = false
     ns.OnSettingsChanged()
     ns.HighlightTooltip(tooltip)
-    Check("glow: hidden when the addon is off", (Shown()), 0)
-    Check("glow: text restored when the addon is off", lines[1].text,
+    Check("bold: hidden when the addon is off", (Shown()), 0)
+    Check("bold: text restored when the addon is off", lines[1].text,
         "Usar: Restaura 530 p. de salud durante 30 s.")
     ns.SetTextWidth(nil)
     StatHighlightDB = nil

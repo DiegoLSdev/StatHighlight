@@ -40,13 +40,13 @@ The options window has five sections:
 - Effect duration: highlights "for 30 min", "1 h 30 min", "10 sec"...
   in its own color (right-click = back to light blue). Cooldowns and
   intervals such as "every 5 sec" are not highlighted.
-- Tooltip background: "Change background opacity" plus a 0-100%
-  slider, for when the game world showing through makes text hard to
-  read. Off by default (the game's own background is used).
+- Tooltip background: "More opaque background" plus a 0-100% slider,
+  for when the game world showing through makes text hard to read.
+  0% = the game's normal background, 100% = fully solid. Off by default.
 - Stats: each stat has a checkbox and its own color box:
   click = own color, right-click = back to the general color.
-  The star next to it gives the stat's words a glowing outline in that
-  color (off by default). Durations have their own star too.
+  The "B" button next to it shows the stat's words in bold (off by
+  default). Durations have their own "B" button too.
 Hover over any option to see an explanation.
 Options are saved between sessions.
 
@@ -79,9 +79,9 @@ Unreleased
   highlighted.
 - Requirement lines such as "Requiere Pesca (20)" are no longer
   highlighted.
-- New: tooltip background opacity option.
-- New: optional glowing outline around the letters of the stats you
-  choose (star button next to each color box).
+- New: option to make the tooltip background more opaque, up to solid.
+- New: optional bold for the stats you choose ("B" button next to each
+  color box).
 
 1.1.0
 - Also highlights items that are thrown into a bonfire and other items
