@@ -66,7 +66,7 @@ local L = {
     GLOW_TITLE = "Glow",
     GLOW_ON = "On.",
     GLOW_OFF = "Off.",
-    GLOW_HELP = "\nClick: turn on or off a soft glow, in the highlight color, behind the tooltip lines that contain it.",
+    GLOW_HELP = "\nClick: turn on or off a glowing outline, in the highlight color, around its letters in tooltips.",
 }
 
 if IS_SPANISH then
@@ -120,7 +120,7 @@ if IS_SPANISH then
     L.GLOW_TITLE = "Brillo"
     L.GLOW_ON = "Activado."
     L.GLOW_OFF = "Desactivado."
-    L.GLOW_HELP = "\nClic: activar o desactivar un brillo suave, del color del resaltado, detrás de las líneas del tooltip que lo contengan."
+    L.GLOW_HELP = "\nClic: activar o desactivar un contorno brillante, del color del resaltado, alrededor de sus letras en los tooltips."
 end
 
 local MAX_GAP = 45 -- max bytes between a stat name and its amount
@@ -821,19 +821,151 @@ local function DebugDump(tooltip, item, classID, regions)
 end
 
 ------------------------------------------------------------------------
--- Line glow
--- A FontString holds a whole tooltip line, so the glow is a soft additive
--- texture placed behind the line, in the color of the first glowing stat.
+-- Letter glow
+-- A tooltip line is a single FontString, so its letters cannot get their
+-- own outline color. Instead, copies of the glowing words are drawn
+-- under the real text, shifted 1-2 pixels around it in the glow color,
+-- which gives the letters a colored halo. To place the copies exactly
+-- on the words, the line is measured and wrapped the way the game does.
+-- If that layout does not match the game's, the line gets no glow.
 ------------------------------------------------------------------------
-local GLOW_TEXTURE = "Interface\\QuestFrame\\UI-QuestLogTitleHighlight"
-local GLOW_ALPHA = 0.5
-local lineGlow = setmetatable({}, { __mode = "k" })  -- FontString -> color
-local glowPool = setmetatable({}, { __mode = "k" })  -- tooltip -> textures
+local GLOW_OFFSETS = { -- x, y, alpha
+    { 1, 0, 0.6 }, { -1, 0, 0.6 }, { 0, 1, 0.6 }, { 0, -1, 0.6 },
+    { 1, 1, 0.45 }, { 1, -1, 0.45 }, { -1, 1, 0.45 }, { -1, -1, 0.45 },
+    { 2, 0, 0.2 }, { -2, 0, 0.2 }, { 0, 2, 0.2 }, { 0, -2, 0.2 },
+}
+local lineGlow = setmetatable({}, { __mode = "k" })     -- FontString -> glowing spans
+local glowLayouts = setmetatable({}, { __mode = "k" })  -- FontString -> cached layout
+local glowPool = setmetatable({}, { __mode = "k" })     -- tooltip -> FontStrings
 
-local function GlowColorFor(spans)
-    for _, span in ipairs(spans) do
-        if IsGlowEnabled(span[3]) then return EffectiveColor(span[3]) end
+-- Width of a text in a given font. Replaceable by the tests.
+local measurer
+local function DefaultTextWidth(font, size, flags, s)
+    if not measurer then
+        local holder = CreateFrame("Frame")
+        holder:Hide()
+        measurer = holder:CreateFontString(nil, "ARTWORK")
     end
+    measurer:SetFont(font, size, flags)
+    measurer:SetText(s)
+    return measurer:GetStringWidth() or 0
+end
+local TextWidth = DefaultTextWidth
+
+-- Spans of a line that must glow, each with its color.
+local function GlowSpansFor(spans)
+    local out
+    for _, span in ipairs(spans) do
+        if IsGlowEnabled(span[3]) then
+            out = out or {}
+            out[#out + 1] = { span[1], span[2], color = EffectiveColor(span[3]) }
+        end
+    end
+    return out
+end
+
+-- Text without color codes, plus a map from byte positions in the
+-- original text to positions in the visible text.
+local function VisibleText(text)
+    local out, map, i, n = {}, {}, 1, #text
+    while i <= n do
+        if string.find(text, "^|c%x%x%x%x%x%x%x%x", i) then
+            i = i + 10
+        elseif string.sub(text, i, i + 1) == "|r" then
+            i = i + 2
+        else
+            out[#out + 1] = string.sub(text, i, i)
+            map[i] = #out
+            i = i + 1
+        end
+    end
+    return table.concat(out), map
+end
+
+-- Splits the visible text into lines like the game's word wrap does.
+-- Returns a list of { first, last } byte ranges.
+local function WrapLines(visible, width, measure)
+    if measure(visible) <= width + 1 then return { { 1, #visible } } end
+    local words = {}
+    for s, e in string.gmatch(visible, "()%S+()") do words[#words + 1] = { s, e - 1 } end
+    if #words == 0 then return { { 1, #visible } } end
+    local lines = {}
+    local a, b = 1, words[1][2]
+    for k = 2, #words do
+        local w = words[k]
+        if measure(string.sub(visible, a, w[2])) <= width + 1 then
+            b = w[2]
+        else
+            lines[#lines + 1] = { a, b }
+            a, b = w[1], w[2]
+        end
+    end
+    lines[#lines + 1] = { a, b }
+    return lines
+end
+
+-- Pieces of the visible range vs..ve, one per wrapped line, with the
+-- x offset where each piece starts. line is 0-based.
+local function GlowPieces(visible, lines, vs, ve, measure)
+    local pieces = {}
+    for index, line in ipairs(lines) do
+        local s, e = math.max(vs, line[1]), math.min(ve, line[2])
+        if s <= e then
+            local piece = string.sub(visible, s, e)
+            local x = 0
+            if s > line[1] then
+                -- Measured together with the piece so spacing and kerning match.
+                local before = string.sub(visible, line[1], s - 1)
+                x = measure(before .. piece) - measure(piece)
+            end
+            pieces[#pieces + 1] = { line = index - 1, x = x, text = piece }
+        end
+    end
+    return pieces
+end
+
+-- Where to draw the glow of one line. Returns nil when it cannot be
+-- placed reliably.
+local function LayoutGlow(region, glowSpans)
+    local text = originals[region]
+    if not text or not region.GetFont then return nil end
+    local font, size, flags = region:GetFont()
+    if not font then return nil end
+    local visible, map = VisibleText(text)
+    if string.find(visible, "|", 1, true) then return nil end -- links, icons...
+    local function measure(s) return TextWidth(font, size, flags, s) end
+
+    local width = region:GetWidth() or 0
+    local lines = WrapLines(visible, width, measure)
+    local justify = region.GetJustifyH and region:GetJustifyH() or "LEFT"
+    if #lines > 1 and justify ~= "LEFT" then return nil end
+    if region.GetNumLines then
+        local n = region:GetNumLines()
+        if n and n > 0 and n ~= #lines then return nil end
+    end
+
+    local x0 = 0
+    if #lines == 1 and justify ~= "LEFT" then
+        local free = width - measure(visible)
+        x0 = (justify == "RIGHT") and free or free / 2
+    end
+    local spacing = region.GetSpacing and region:GetSpacing() or 0
+    local height = (region.GetStringHeight and region:GetStringHeight()) or region:GetHeight() or 0
+    local step = (height + spacing) / #lines
+
+    local pieces = {}
+    for _, span in ipairs(glowSpans) do
+        local vs, ve = map[span[1]], map[span[2]]
+        if vs and ve then
+            for _, p in ipairs(GlowPieces(visible, lines, vs, ve, measure)) do
+                p.x = p.x + x0
+                p.y = -p.line * step
+                p.color = span.color
+                pieces[#pieces + 1] = p
+            end
+        end
+    end
+    return { pieces = pieces, font = font, size = size, flags = flags }
 end
 
 local function HideGlows(tooltip, from)
@@ -842,36 +974,50 @@ local function HideGlows(tooltip, from)
     for i = from or 1, #pool do pool[i]:Hide() end
 end
 
-local function NewGlow(tooltip)
-    local glow = tooltip:CreateTexture(nil, "ARTWORK", nil, -8)
-    if glow:SetTexture(GLOW_TEXTURE) == false then
-        glow:SetColorTexture(1, 1, 1, 1) -- texture missing: plain soft band
-    end
-    if glow.SetBlendMode then glow:SetBlendMode("ADD") end
+local function GlowString(tooltip, index)
     local pool = glowPool[tooltip]
     if not pool then
         pool = {}
         glowPool[tooltip] = pool
     end
-    pool[#pool + 1] = glow
-    return glow
+    if not pool[index] then
+        local fs = tooltip:CreateFontString(nil, "ARTWORK")
+        if fs.SetDrawLayer then fs:SetDrawLayer("ARTWORK", -8) end -- under the real text
+        if fs.SetShadowOffset then fs:SetShadowOffset(0, 0) end
+        if fs.SetWordWrap then fs:SetWordWrap(false) end
+        pool[index] = fs
+    end
+    return pool[index]
 end
 
 local function UpdateGlows(tooltip, regions)
-    if not tooltip.CreateTexture then return end
+    if not tooltip.CreateFontString then return end
     local used = 0
     for _, region in ipairs(regions) do
-        local c = lineGlow[region]
-        if c and highlighted[region] == region:GetText()
+        local glowSpans = lineGlow[region]
+        local current = region.GetText and region:GetText()
+        if glowSpans and highlighted[region] == current
             and (not region.IsShown or region:IsShown()) then
-            used = used + 1
-            local pool = glowPool[tooltip]
-            local glow = (pool and pool[used]) or NewGlow(tooltip)
-            glow:ClearAllPoints()
-            glow:SetPoint("TOPLEFT", region, "TOPLEFT", -6, 4)
-            glow:SetPoint("BOTTOMRIGHT", region, "BOTTOMRIGHT", 6, -4)
-            glow:SetVertexColor(c.r, c.g, c.b, GLOW_ALPHA)
-            glow:Show()
+            local width = region:GetWidth()
+            local layout = glowLayouts[region]
+            if not layout or layout.text ~= current or layout.width ~= width then
+                layout = LayoutGlow(region, glowSpans) or { pieces = {} }
+                layout.text, layout.width = current, width
+                glowLayouts[region] = layout
+            end
+            for _, piece in ipairs(layout.pieces) do
+                local c = piece.color
+                for _, o in ipairs(GLOW_OFFSETS) do
+                    used = used + 1
+                    local fs = GlowString(tooltip, used)
+                    fs:SetFont(layout.font, layout.size, layout.flags)
+                    fs:SetText(piece.text)
+                    fs:SetTextColor(c.r, c.g, c.b, o[3])
+                    fs:ClearAllPoints()
+                    fs:SetPoint("TOPLEFT", region, "TOPLEFT", piece.x + o[1], piece.y + o[2])
+                    fs:Show()
+                end
+            end
         end
     end
     HideGlows(tooltip, used + 1)
@@ -903,7 +1049,8 @@ local function HighlightTooltip(tooltip, data)
                         originals[region] = text
                         highlighted[region] = newText
                         regionVersion[region] = settingsVersion
-                        lineGlow[region] = GlowColorFor(spans)
+                        lineGlow[region] = GlowSpansFor(spans)
+                        glowLayouts[region] = nil
                         if newText ~= region:GetText() then region:SetText(newText) end
                     else
                         if ours then region:SetText(text) end
@@ -911,6 +1058,7 @@ local function HighlightTooltip(tooltip, data)
                         highlighted[region] = nil
                         regionVersion[region] = nil
                         lineGlow[region] = nil
+                        glowLayouts[region] = nil
                     end
                 end
             end
@@ -1504,3 +1652,7 @@ ns.L = L
 ns.ApplyTooltipBackground = ApplyTooltipBackground
 ns.HighlightTooltip = HighlightTooltip
 ns.OnSettingsChanged = OnSettingsChanged
+ns.WrapLines = WrapLines
+ns.GlowPieces = GlowPieces
+ns.VisibleText = VisibleText
+ns.SetTextWidth = function(fn) TextWidth = fn or DefaultTextWidth end

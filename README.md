@@ -51,7 +51,7 @@ The options window has five sections:
   - *Gear*: weapons and armor (off).
 - **Effect duration**: highlights *"for 30 min"*, *"1 h 30 min"*, *"10 sec"*… in its own color (light blue by default; right-click to go back to it). Cooldowns and intervals such as *"every 5 sec"* are not highlighted.
 - **Tooltip background**: *Change background opacity* plus a 0–100% slider, for when the game world showing through the tooltip makes the text hard to read. Off by default (the game's own background is used).
-- **Stats**: each stat has a checkbox and its own color box: **click** = own color, **right-click** = back to the general color. The **star** next to it turns on a soft glow, in that color, behind the tooltip lines that contain the stat (off by default; durations have their own star too). The glow covers the whole line, because the game draws each tooltip line as a single piece of text.
+- **Stats**: each stat has a checkbox and its own color box: **click** = own color, **right-click** = back to the general color. The **star** next to it gives the stat's words a glowing outline in that color (off by default; durations have their own star too).
 
 Hover over any option to see an explanation. Options are saved between sessions (`StatHighlightDB`).
 
@@ -68,7 +68,7 @@ Hover over any option to see an explanation. Options are saved between sessions 
 - Campfire items: amounts written as *"12 p. más de intelecto"* and *"un 8% más de estadísticas"* (and *"12 more Intellect"*, *"8% more stats"*) are now highlighted.
 - Requirement lines such as *"Requiere Pesca (20)"* are no longer highlighted.
 - New: tooltip background opacity option.
-- New: optional glow behind the lines that contain the stats you choose (star button next to each color box).
+- New: optional glowing outline around the letters of the stats you choose (star button next to each color box).
 
 ### 1.1.0
 

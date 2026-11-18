@@ -190,17 +190,36 @@ do
     StatHighlightDB = nil
     ns.InitDB()
 
-    local textures = {}
-    local function FakeTexture()
+    -- Every character is 6 pixels wide in these tests.
+    local function measure(s) return #s * 6 end
+    ns.SetTextWidth(function(_, _, _, s) return measure(s) end)
+
+    -- Layout helpers.
+    local visible, map = ns.VisibleText("|cff00ff00Usar: 5 p.|r ok")
+    Check("glow: visible text drops color codes", visible, "Usar: 5 p. ok")
+    Check("glow: position map skips color codes", map[11], 1)
+    local wrapped = ns.WrapLines("aaa bbb ccc", 42, measure)
+    Check("glow: word wrap", #wrapped .. ":" .. wrapped[2][1] .. "-" .. wrapped[2][2], "2:9-11")
+    local pieces = ns.GlowPieces("aaa bbb ccc", wrapped, 5, 11, measure)
+    Check("glow: span split across lines",
+        pieces[1].text .. "@" .. pieces[1].line .. "," .. pieces[1].x .. " " ..
+        pieces[2].text .. "@" .. pieces[2].line .. "," .. pieces[2].x,
+        "bbb@0,24 ccc@1,0")
+
+    local strings = {}
+    local function FakeFontString()
         local t = { shown = false }
-        function t:SetTexture() return true end
-        function t:SetBlendMode() end
+        function t:SetDrawLayer() end
+        function t:SetShadowOffset() end
+        function t:SetWordWrap() end
+        function t:SetFont() end
+        function t:SetText(s) self.text = s end
         function t:ClearAllPoints() end
-        function t:SetPoint() end
-        function t:SetVertexColor(r, g, b, a) self.color = { r, g, b, a } end
+        function t:SetPoint(_, _, _, x, y) self.x, self.y = x, y end
+        function t:SetTextColor(r, g, b, a) self.color = { r, g, b, a } end
         function t:Show() self.shown = true end
         function t:Hide() self.shown = false end
-        textures[#textures + 1] = t
+        strings[#strings + 1] = t
         return t
     end
     local function Line(text)
@@ -208,6 +227,9 @@ do
         function l:GetObjectType() return "FontString" end
         function l:GetText() return self.text end
         function l:SetText(t) self.text = t end
+        function l:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "" end
+        function l:GetWidth() return 1000 end
+        function l:GetStringHeight() return 12 end
         return l
     end
     local lines = {
@@ -216,14 +238,18 @@ do
     }
     local tooltip = {}
     function tooltip:GetRegions() return unpack(lines) end
-    function tooltip:CreateTexture() return FakeTexture() end
+    function tooltip:CreateFontString() return FakeFontString() end
     local function Shown()
-        local n, last = 0, nil
-        for _, t in ipairs(textures) do
-            if t.shown then n, last = n + 1, t end
+        local n, first = 0, nil
+        for _, t in ipairs(strings) do
+            if t.shown then
+                n = n + 1
+                first = first or t
+            end
         end
-        return n, last
+        return n, first
     end
+    local copies = 12 -- outline copies per glowing piece
 
     ns.HighlightTooltip(tooltip)
     Check("glow: off by default", (Shown()), 0)
@@ -232,7 +258,9 @@ do
     ns.OnSettingsChanged()
     ns.HighlightTooltip(tooltip)
     local n, glow = Shown()
-    Check("glow: one line glows", n, 1)
+    Check("glow: outline copies for one stat", n, copies)
+    Check("glow: only the stat's words", glow and glow.text, "530 p. de salud")
+    Check("glow: placed on the words", glow and glow.x, 90 + 1) -- "Usar: Restaura " + 1 px
     Check("glow: uses the stat's color", glow and glow.color[3], 0.290)
 
     StatHighlightDB.stats.health = nil
@@ -240,8 +268,9 @@ do
     ns.OnSettingsChanged()
     ns.HighlightTooltip(tooltip)
     n, glow = Shown()
+    Check("glow: duration words", glow and glow.text, "30 s")
     Check("glow: duration glow uses the duration color", glow and glow.color[1], 0.400)
-    Check("glow: textures are reused", #textures, 1)
+    Check("glow: font strings are reused", #strings, copies)
 
     StatHighlightDB.stats.duration = nil
     ns.OnSettingsChanged()
@@ -255,6 +284,7 @@ do
     Check("glow: hidden when the addon is off", (Shown()), 0)
     Check("glow: text restored when the addon is off", lines[1].text,
         "Usar: Restaura 530 p. de salud durante 30 s.")
+    ns.SetTextWidth(nil)
     StatHighlightDB = nil
     ns.InitDB()
 end

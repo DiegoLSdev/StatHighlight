@@ -45,9 +45,8 @@ The options window has five sections:
   read. Off by default (the game's own background is used).
 - Stats: each stat has a checkbox and its own color box:
   click = own color, right-click = back to the general color.
-  The star next to it turns on a soft glow, in that color, behind the
-  tooltip lines that contain the stat (off by default). Durations have
-  their own star too.
+  The star next to it gives the stat's words a glowing outline in that
+  color (off by default). Durations have their own star too.
 Hover over any option to see an explanation.
 Options are saved between sessions.
 
@@ -81,8 +80,8 @@ Unreleased
 - Requirement lines such as "Requiere Pesca (20)" are no longer
   highlighted.
 - New: tooltip background opacity option.
-- New: optional glow behind the lines that contain the stats you choose
-  (star button next to each color box).
+- New: optional glowing outline around the letters of the stats you
+  choose (star button next to each color box).
 
 1.1.0
 - Also highlights items that are thrown into a bonfire and other items
