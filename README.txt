@@ -33,6 +33,8 @@ COMMANDS
 
 Note: /sh cannot be used because WoW already uses it for /yell.
 
+It can also be opened from Esc > Options > AddOns > StatHighlight.
+
 The options window has five sections:
 - General: "Enabled", "General color" and "Reset all".
 - Where to highlight: "Consumables" (on), "Bonfire and other items with an
@@ -45,8 +47,6 @@ The options window has five sections:
   0% = the game's normal background, 100% = fully solid. Off by default.
 - Stats: each stat has a checkbox and its own color box:
   click = own color, right-click = back to the general color.
-  The "B" button next to it shows the stat's words in bold (off by
-  default). Durations have their own "B" button too.
 Hover over any option to see an explanation.
 Options are saved between sessions.
 
@@ -80,8 +80,10 @@ Unreleased
 - Requirement lines such as "Requiere Pesca (20)" are no longer
   highlighted.
 - New: option to make the tooltip background more opaque, up to solid.
-- New: optional bold for the stats you choose ("B" button next to each
-  color box).
+- New: StatHighlight appears in Esc > Options > AddOns, with a button
+  that opens its options window.
+- Fixed: highlights flickering (and briefly showing in the wrong place)
+  on tooltips the game refreshes often (bag items, items on cooldown).
 
 1.1.0
 - Also highlights items that are thrown into a bonfire and other items

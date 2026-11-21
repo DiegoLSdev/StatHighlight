@@ -42,6 +42,8 @@ Health, mana, rage/energy, stamina, spirit, strength, agility, intellect, all st
 
 > `/sh` cannot be used because WoW already uses it for `/yell`.
 
+You can also open it from **Esc → Options → AddOns → StatHighlight**.
+
 The options window has five sections:
 
 - **General**: *Enabled*, *General color* (click the color box) and *Reset all*.
@@ -51,7 +53,7 @@ The options window has five sections:
   - *Gear*: weapons and armor (off).
 - **Effect duration**: highlights *"for 30 min"*, *"1 h 30 min"*, *"10 sec"*… in its own color (light blue by default; right-click to go back to it). Cooldowns and intervals such as *"every 5 sec"* are not highlighted.
 - **Tooltip background**: *More opaque background* plus a 0–100% slider, for when the game world showing through the tooltip makes the text hard to read. 0% = the game's normal background, 100% = fully solid (same color). Off by default.
-- **Stats**: each stat has a checkbox and its own color box: **click** = own color, **right-click** = back to the general color. The **B** button next to it shows the stat's words in **bold** (off by default; durations have their own **B** button too).
+- **Stats**: each stat has a checkbox and its own color box: **click** = own color, **right-click** = back to the general color.
 
 Hover over any option to see an explanation. Options are saved between sessions (`StatHighlightDB`).
 
@@ -68,7 +70,8 @@ Hover over any option to see an explanation. Options are saved between sessions 
 - Campfire items: amounts written as *"12 p. más de intelecto"* and *"un 8% más de estadísticas"* (and *"12 more Intellect"*, *"8% more stats"*) are now highlighted.
 - Requirement lines such as *"Requiere Pesca (20)"* are no longer highlighted.
 - New: option to make the tooltip background more opaque, up to solid.
-- New: optional bold for the stats you choose (**B** button next to each color box).
+- New: StatHighlight appears in **Esc → Options → AddOns**, with a button that opens its options window.
+- Fixed: highlights flickering (and briefly showing in the wrong place) on tooltips the game refreshes often, such as bag items or items with a cooldown.
 
 ### 1.1.0
 

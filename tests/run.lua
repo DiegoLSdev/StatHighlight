@@ -202,115 +202,57 @@ do
     ns.InitDB()
     Check("background: off by default", StatHighlightDB.background.enabled, false)
 
-    -- Unreleased builds saved bold as "glow".
-    StatHighlightDB = { stats = { health = { glow = true } } }
+    -- Unreleased builds saved "glow" and "bold" (both removed).
+    StatHighlightDB = { stats = { health = { glow = true, bold = true, color = { r = 1, g = 0, b = 0 } } } }
     ns.InitDB()
-    Check("migration: glow -> bold", StatHighlightDB.stats.health.bold, true)
+    Check("migration: removes bold", StatHighlightDB.stats.health.bold, nil)
     Check("migration: removes glow", StatHighlightDB.stats.health.glow, nil)
+    Check("migration: keeps the stat color", StatHighlightDB.stats.health.color.r, 1)
 end
 
--- Line bold -----------------------------------------------------------------
+-- Tooltips refreshed by the game -------------------------------------------
+-- The game rewrites some item tooltips several times per second. The
+-- highlight must be back right after each fill, not on the next check.
 do
     StatHighlightDB = nil
     ns.InitDB()
-
-    -- Every character is 6 pixels wide in these tests.
-    local function measure(s) return #s * 6 end
-    ns.SetTextWidth(function(_, _, _, s) return measure(s) end)
-
-    -- Layout helpers.
-    local visible, map = ns.VisibleText("|cff00ff00Usar: 5 p.|r ok")
-    Check("bold: visible text drops color codes", visible, "Usar: 5 p. ok")
-    Check("bold: position map skips color codes", map[11], 1)
-    local wrapped = ns.WrapLines("aaa bbb ccc", 42, measure)
-    Check("bold: word wrap", #wrapped .. ":" .. wrapped[2][1] .. "-" .. wrapped[2][2], "2:9-11")
-    local pieces = ns.BoldPieces("aaa bbb ccc", wrapped, 5, 11, measure)
-    Check("bold: span split across lines",
-        pieces[1].text .. "@" .. pieces[1].line .. "," .. pieces[1].x .. " " ..
-        pieces[2].text .. "@" .. pieces[2].line .. "," .. pieces[2].x,
-        "bbb@0,24 ccc@1,0")
-
-    local strings = {}
-    local function FakeFontString()
-        local t = { shown = false }
-        function t:SetDrawLayer() end
-        function t:SetShadowOffset() end
-        function t:SetWordWrap() end
-        function t:SetFont() end
-        function t:SetText(s) self.text = s end
-        function t:ClearAllPoints() end
-        function t:SetPoint(_, _, _, x, y) self.x, self.y = x, y end
-        function t:SetTextColor(r, g, b, a) self.color = { r, g, b, a } end
-        function t:Show() self.shown = true end
-        function t:Hide() self.shown = false end
-        strings[#strings + 1] = t
-        return t
-    end
-    local function Line(text)
-        local l = { text = text }
-        function l:GetObjectType() return "FontString" end
-        function l:GetText() return self.text end
-        function l:SetText(t) self.text = t end
-        function l:GetFont() return "Fonts\\FRIZQT__.TTF", 12, "" end
-        function l:GetWidth() return 1000 end
-        function l:GetStringHeight() return 12 end
-        return l
-    end
-    local lines = {
-        Line("Usar: Restaura 530 p. de salud durante 30 s."),
-        Line("Nivel 45"),
-    }
-    local tooltip = {}
-    function tooltip:GetRegions() return unpack(lines) end
-    function tooltip:CreateFontString() return FakeFontString() end
-    local function Shown()
-        local n, first = 0, nil
-        for _, t in ipairs(strings) do
-            if t.shown then
-                n = n + 1
-                first = first or t
-            end
+    hooksecurefunc = function(t, name, fn)
+        local original = t[name]
+        t[name] = function(...)
+            original(...)
+            fn(...)
         end
-        return n, first
     end
-    local copies = 1 -- copies per bold piece
+    local line = { text = "" }
+    function line:GetObjectType() return "FontString" end
+    function line:GetText() return self.text end
+    function line:SetText(t) self.text = t end
+    local methods = {}
+    function methods:GetRegions() return line end
+    function methods:GetItem() return "Bread", "item:4540" end
+    function methods:SetBagItem() line.text = "Usar: Restaura 61 p. de salud durante 18 s." end
+    local tooltip = setmetatable({}, { __index = methods })
+    ns.HookFillMethods(tooltip)
 
-    ns.HighlightTooltip(tooltip)
-    Check("bold: off by default", (Shown()), 0)
+    local expected = "Usar: Restaura |cffffd24a61 p. de salud|r durante |cff66ccff18 s|r."
+    tooltip:SetBagItem(0, 1)
+    Check("refresh: highlighted as soon as the tooltip is filled", line.text, expected)
+    tooltip:SetBagItem(0, 1) -- the game rewrites the same text without color
+    Check("refresh: highlighted again after the game rewrites it", line.text, expected)
+    hooksecurefunc = nil
+end
 
-    StatHighlightDB.stats.health = { bold = true }
-    ns.OnSettingsChanged()
-    ns.HighlightTooltip(tooltip)
-    local n, bold = Shown()
-    Check("bold: one copy for one stat", n, copies)
-    Check("bold: only the stat's words", bold and bold.text, "530 p. de salud")
-    Check("bold: placed on the words", bold and bold.x, 90 + 1) -- "Usar: Restaura " + 1 px
-    Check("bold: uses the stat's color", bold and bold.color[3], 0.290)
-
-    StatHighlightDB.stats.health = nil
-    StatHighlightDB.stats.duration = { bold = true }
-    ns.OnSettingsChanged()
-    ns.HighlightTooltip(tooltip)
-    n, bold = Shown()
-    Check("bold: duration words", bold and bold.text, "30 s")
-    Check("bold: duration uses the duration color", bold and bold.color[1], 0.400)
-    Check("bold: font strings are reused", #strings, copies)
-
-    StatHighlightDB.stats.duration = nil
-    ns.OnSettingsChanged()
-    ns.HighlightTooltip(tooltip)
-    Check("bold: hidden when turned off", (Shown()), 0)
-
-    StatHighlightDB.stats.health = { bold = true }
-    StatHighlightDB.enabled = false
-    ns.OnSettingsChanged()
-    ns.HighlightTooltip(tooltip)
-    Check("bold: hidden when the addon is off", (Shown()), 0)
-    Check("bold: text restored when the addon is off", lines[1].text,
-        "Usar: Restaura 530 p. de salud durante 30 s.")
-    ns.SetTextWidth(nil)
-    StatHighlightDB = nil
-    ns.InitDB()
+-- Entry in Esc > Options > AddOns -------------------------------------------
+do
+    local registered
+    Settings = {
+        RegisterCanvasLayoutCategory = function(panel, name) return { panel = panel, name = name } end,
+        RegisterAddOnCategory = function(category) registered = category end,
+    }
+    local ok, err = pcall(ns.RegisterSettingsPanel)
+    Check("settings: panel builds", ok and "ok" or tostring(err), "ok")
+    Check("settings: listed under AddOns", registered and registered.name, "StatHighlight")
+    Settings = nil
 end
 
 -- Options window can be built and refreshed ---------------------------------

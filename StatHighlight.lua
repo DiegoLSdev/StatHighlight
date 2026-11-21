@@ -59,14 +59,13 @@ local L = {
     BG_OPACITY_HELP = "0% = the game's normal background.\n100% = fully solid, the game world does not show through.",
 
     SECTION_STATS = "Stats",
-    STATS_HINT = "Checkbox: enable.  Color box: click = own color, right-click = general.  B: bold.",
+    STATS_HINT = "Checkbox: enable.  Color box: click = own color, right-click = general color.",
     STAT_OWN_COLOR = "Has its own color.",
     STAT_GENERAL_COLOR = "Uses the general color.",
     STAT_COLOR_HELP = "\nClick: choose its own color.\nRight-click: back to the general color.",
-    BOLD_TITLE = "Bold",
-    BOLD_ON = "On.",
-    BOLD_OFF = "Off.",
-    BOLD_HELP = "\nClick: show its words in bold in tooltips, or back to normal.",
+
+    PANEL_DESC = "Highlights stats, amounts and effect durations in item tooltips.\nAll options are in the StatHighlight window (you can also type /shl).",
+    PANEL_OPEN = "Open StatHighlight options",
 }
 
 if IS_SPANISH then
@@ -113,14 +112,13 @@ if IS_SPANISH then
     L.BG_OPACITY_HELP = "0% = el fondo normal del juego.\n100% = totalmente sólido, no se ve el mundo del juego a través."
 
     L.SECTION_STATS = "Estadísticas"
-    L.STATS_HINT = "Casilla: activar.  Color: clic = color propio, clic derecho = general.  B: negrita."
+    L.STATS_HINT = "Casilla: activar.  Cuadro de color: clic = color propio, clic derecho = color general."
     L.STAT_OWN_COLOR = "Tiene color propio."
     L.STAT_GENERAL_COLOR = "Usa el color general."
     L.STAT_COLOR_HELP = "\nClic: elegir color propio.\nClic derecho: volver al color general."
-    L.BOLD_TITLE = "Negrita"
-    L.BOLD_ON = "Activado."
-    L.BOLD_OFF = "Desactivado."
-    L.BOLD_HELP = "\nClic: mostrar sus palabras en negrita en los tooltips, o volver a normal."
+
+    L.PANEL_DESC = "Resalta estadísticas, cantidades y duraciones en los tooltips de objetos.\nTodas las opciones están en la ventana de StatHighlight (también con /shl)."
+    L.PANEL_OPEN = "Abrir opciones de StatHighlight"
 end
 
 local MAX_GAP = 45 -- max bytes between a stat name and its amount
@@ -354,12 +352,9 @@ local function InitDB()
     if type(db.background) ~= "table" then db.background = DefaultBackground() end
     if type(db.background.alpha) ~= "number" then db.background.alpha = 1 end
     db.background.alpha = math.max(0, math.min(1, db.background.alpha))
-    -- Unreleased builds called bold "glow".
+    -- Unreleased builds saved "glow" and "bold"; both were removed.
     for _, s in pairs(db.stats) do
-        if type(s) == "table" and s.glow ~= nil then
-            s.bold = s.glow or nil
-            s.glow = nil
-        end
+        if type(s) == "table" then s.glow, s.bold = nil, nil end
     end
 end
 
@@ -384,12 +379,6 @@ local function EffectiveColor(key)
     if s and s.color then return s.color end
     if key == DURATION_KEY then return DURATION_COLOR end
     return (db and db.color) or DEFAULT_COLOR
-end
-
--- Bold is off unless turned on for that stat.
-local function IsBoldEnabled(key)
-    local s = db and db.stats[key]
-    return s ~= nil and s.bold == true
 end
 
 local function ColorCode(c)
@@ -828,207 +817,6 @@ local function DebugDump(tooltip, item, classID, regions)
     end
 end
 
-------------------------------------------------------------------------
--- Bold words
--- A tooltip line is a single FontString with a single font, so part of
--- it cannot use a bold font. Instead, a copy of each bold word is drawn
--- over the real text, 1 pixel to the right and in the same color, which
--- makes its strokes thicker (faux bold). To place the copies exactly on
--- the words, the line is measured and wrapped the way the game does.
--- If that layout does not match the game's, the line is left as is.
-------------------------------------------------------------------------
-local BOLD_OFFSETS = { -- x, y, alpha
-    { 1, 0, 1 },
-}
-local lineBold = setmetatable({}, { __mode = "k" })     -- FontString -> bold spans
-local boldLayouts = setmetatable({}, { __mode = "k" })  -- FontString -> cached layout
-local boldPool = setmetatable({}, { __mode = "k" })     -- tooltip -> FontStrings
-
--- Width of a text in a given font. Replaceable by the tests.
-local measurer
-local function DefaultTextWidth(font, size, flags, s)
-    if not measurer then
-        local holder = CreateFrame("Frame")
-        holder:Hide()
-        measurer = holder:CreateFontString(nil, "ARTWORK")
-    end
-    measurer:SetFont(font, size, flags)
-    measurer:SetText(s)
-    return measurer:GetStringWidth() or 0
-end
-local TextWidth = DefaultTextWidth
-
--- Spans of a line that must be bold, each with its color.
-local function BoldSpansFor(spans)
-    local out
-    for _, span in ipairs(spans) do
-        if IsBoldEnabled(span[3]) then
-            out = out or {}
-            out[#out + 1] = { span[1], span[2], color = EffectiveColor(span[3]) }
-        end
-    end
-    return out
-end
-
--- Text without color codes, plus a map from byte positions in the
--- original text to positions in the visible text.
-local function VisibleText(text)
-    local out, map, i, n = {}, {}, 1, #text
-    while i <= n do
-        if string.find(text, "^|c%x%x%x%x%x%x%x%x", i) then
-            i = i + 10
-        elseif string.sub(text, i, i + 1) == "|r" then
-            i = i + 2
-        else
-            out[#out + 1] = string.sub(text, i, i)
-            map[i] = #out
-            i = i + 1
-        end
-    end
-    return table.concat(out), map
-end
-
--- Splits the visible text into lines like the game's word wrap does.
--- Returns a list of { first, last } byte ranges.
-local function WrapLines(visible, width, measure)
-    if measure(visible) <= width + 1 then return { { 1, #visible } } end
-    local words = {}
-    for s, e in string.gmatch(visible, "()%S+()") do words[#words + 1] = { s, e - 1 } end
-    if #words == 0 then return { { 1, #visible } } end
-    local lines = {}
-    local a, b = 1, words[1][2]
-    for k = 2, #words do
-        local w = words[k]
-        if measure(string.sub(visible, a, w[2])) <= width + 1 then
-            b = w[2]
-        else
-            lines[#lines + 1] = { a, b }
-            a, b = w[1], w[2]
-        end
-    end
-    lines[#lines + 1] = { a, b }
-    return lines
-end
-
--- Pieces of the visible range vs..ve, one per wrapped line, with the
--- x offset where each piece starts. line is 0-based.
-local function BoldPieces(visible, lines, vs, ve, measure)
-    local pieces = {}
-    for index, line in ipairs(lines) do
-        local s, e = math.max(vs, line[1]), math.min(ve, line[2])
-        if s <= e then
-            local piece = string.sub(visible, s, e)
-            local x = 0
-            if s > line[1] then
-                -- Measured together with the piece so spacing and kerning match.
-                local before = string.sub(visible, line[1], s - 1)
-                x = measure(before .. piece) - measure(piece)
-            end
-            pieces[#pieces + 1] = { line = index - 1, x = x, text = piece }
-        end
-    end
-    return pieces
-end
-
--- Where to draw the bold of one line. Returns nil when it cannot be
--- placed reliably.
-local function LayoutBold(region, boldSpans)
-    local text = originals[region]
-    if not text or not region.GetFont then return nil end
-    local font, size, flags = region:GetFont()
-    if not font then return nil end
-    local visible, map = VisibleText(text)
-    if string.find(visible, "|", 1, true) then return nil end -- links, icons...
-    local function measure(s) return TextWidth(font, size, flags, s) end
-
-    local width = region:GetWidth() or 0
-    local lines = WrapLines(visible, width, measure)
-    local justify = region.GetJustifyH and region:GetJustifyH() or "LEFT"
-    if #lines > 1 and justify ~= "LEFT" then return nil end
-    if region.GetNumLines then
-        local n = region:GetNumLines()
-        if n and n > 0 and n ~= #lines then return nil end
-    end
-
-    local x0 = 0
-    if #lines == 1 and justify ~= "LEFT" then
-        local free = width - measure(visible)
-        x0 = (justify == "RIGHT") and free or free / 2
-    end
-    local spacing = region.GetSpacing and region:GetSpacing() or 0
-    local height = (region.GetStringHeight and region:GetStringHeight()) or region:GetHeight() or 0
-    local step = (height + spacing) / #lines
-
-    local pieces = {}
-    for _, span in ipairs(boldSpans) do
-        local vs, ve = map[span[1]], map[span[2]]
-        if vs and ve then
-            for _, p in ipairs(BoldPieces(visible, lines, vs, ve, measure)) do
-                p.x = p.x + x0
-                p.y = -p.line * step
-                p.color = span.color
-                pieces[#pieces + 1] = p
-            end
-        end
-    end
-    return { pieces = pieces, font = font, size = size, flags = flags }
-end
-
-local function HideBolds(tooltip, from)
-    local pool = boldPool[tooltip]
-    if not pool then return end
-    for i = from or 1, #pool do pool[i]:Hide() end
-end
-
-local function BoldString(tooltip, index)
-    local pool = boldPool[tooltip]
-    if not pool then
-        pool = {}
-        boldPool[tooltip] = pool
-    end
-    if not pool[index] then
-        local fs = tooltip:CreateFontString(nil, "OVERLAY") -- over the real text
-        -- No shadow: the real text's shadow already shows below.
-        if fs.SetShadowOffset then fs:SetShadowOffset(0, 0) end
-        if fs.SetWordWrap then fs:SetWordWrap(false) end
-        pool[index] = fs
-    end
-    return pool[index]
-end
-
-local function UpdateBolds(tooltip, regions)
-    if not tooltip.CreateFontString then return end
-    local used = 0
-    for _, region in ipairs(regions) do
-        local boldSpans = lineBold[region]
-        local current = region.GetText and region:GetText()
-        if boldSpans and highlighted[region] == current
-            and (not region.IsShown or region:IsShown()) then
-            local width = region:GetWidth()
-            local layout = boldLayouts[region]
-            if not layout or layout.text ~= current or layout.width ~= width then
-                layout = LayoutBold(region, boldSpans) or { pieces = {} }
-                layout.text, layout.width = current, width
-                boldLayouts[region] = layout
-            end
-            for _, piece in ipairs(layout.pieces) do
-                local c = piece.color
-                for _, o in ipairs(BOLD_OFFSETS) do
-                    used = used + 1
-                    local fs = BoldString(tooltip, used)
-                    fs:SetFont(layout.font, layout.size, layout.flags)
-                    fs:SetText(piece.text)
-                    fs:SetTextColor(c.r, c.g, c.b, o[3])
-                    fs:ClearAllPoints()
-                    fs:SetPoint("TOPLEFT", region, "TOPLEFT", piece.x + o[1], piece.y + o[2])
-                    fs:Show()
-                end
-            end
-        end
-    end
-    HideBolds(tooltip, used + 1)
-end
-
 local function HighlightTooltip(tooltip, data)
     if not db or not tooltip or not tooltip.GetRegions then return end
     if tooltip.IsForbidden and tooltip:IsForbidden() then return end
@@ -1055,22 +843,17 @@ local function HighlightTooltip(tooltip, data)
                         originals[region] = text
                         highlighted[region] = newText
                         regionVersion[region] = settingsVersion
-                        lineBold[region] = BoldSpansFor(spans)
-                        boldLayouts[region] = nil
                         if newText ~= region:GetText() then region:SetText(newText) end
                     else
                         if ours then region:SetText(text) end
                         originals[region] = nil
                         highlighted[region] = nil
                         regionVersion[region] = nil
-                        lineBold[region] = nil
-                        boldLayouts[region] = nil
                     end
                 end
             end
         end
     end
-    UpdateBolds(tooltip, regions)
 end
 
 -- Hook in every available way: some tooltips (bags, vendor...) do not go
@@ -1165,7 +948,7 @@ for _, name in ipairs(TOOLTIPS) do
         end
         frame:HookScript("OnShow", function(self)
             ApplyTooltipBackground(self)
-            if TooltipShowsItem(self) then HighlightTooltip(self) else HideBolds(self) end
+            if TooltipShowsItem(self) then HighlightTooltip(self) end
         end)
         -- Re-check every 0.2 s while visible (text that arrives late).
         local elapsed = 0
@@ -1174,9 +957,53 @@ for _, name in ipairs(TOOLTIPS) do
             if elapsed < 0.2 then return end
             elapsed = 0
             ApplyTooltipBackground(self)
-            if TooltipShowsItem(self) then HighlightTooltip(self) else HideBolds(self) end
+            if TooltipShowsItem(self) then HighlightTooltip(self) end
         end)
     end
+end
+
+-- The game refreshes some item tooltips several times per second (bags,
+-- items with a cooldown...), rewriting their text without color. If the
+-- highlight only came back on the next 0.2 s check, it would flicker.
+-- So the highlight is also applied right after every method that fills
+-- the tooltip, before the frame is drawn.
+local function IsFillMethod(name)
+    return name == "Show" or name == "SetHyperlink" or name == "SetItemByID"
+        or name == "SetAction"
+        or (string.find(name, "^Set") ~= nil and string.find(name, "Item$") ~= nil)
+end
+
+local function HookFillMethods(frame)
+    if not hooksecurefunc then return end
+    local meta = getmetatable(frame)
+    local methods = meta and meta.__index
+    local names = {}
+    if type(methods) == "table" then
+        for name, fn in pairs(methods) do
+            if type(name) == "string" and type(fn) == "function" and IsFillMethod(name) then
+                names[#names + 1] = name
+            end
+        end
+    end
+    for name, fn in pairs(frame) do
+        if type(name) == "string" and type(fn) == "function" and IsFillMethod(name) then
+            names[#names + 1] = name
+        end
+    end
+    local hooked = {}
+    for _, name in ipairs(names) do
+        if not hooked[name] then
+            hooked[name] = true
+            hooksecurefunc(frame, name, function(self)
+                if TooltipShowsItem(self) then HighlightTooltip(self) end
+            end)
+        end
+    end
+end
+
+for _, name in ipairs(TOOLTIPS) do
+    local frame = _G[name]
+    if frame then HookFillMethods(frame) end
 end
 
 ------------------------------------------------------------------------
@@ -1249,46 +1076,6 @@ end
 local function AttachHelp(widget, title, line)
     widget:SetScript("OnEnter", function(self) ShowHelpTooltip(self, title, line) end)
     widget:SetScript("OnLeave", function() GameTooltip:Hide() end)
-end
-
--- Small "B" button that turns bold on or off for one stat.
-local function CreateBoldToggle(parent)
-    local button = CreateFrame("Button", nil, parent)
-    button:SetSize(18, 18)
-    local border = button:CreateTexture(nil, "BACKGROUND")
-    border:SetAllPoints()
-    border:SetColorTexture(0.05, 0.05, 0.05, 1)
-    local letter = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    letter:SetPoint("CENTER", 1, 0)
-    letter:SetText("B")
-    button.letter = letter
-    return button
-end
-
--- Wires a bold toggle to the "bold" setting of one stat.
-local function SetupBoldToggle(button, key, title)
-    local function ShowHelp(self)
-        local state = IsBoldEnabled(key) and L.BOLD_ON or L.BOLD_OFF
-        ShowHelpTooltip(self, L.BOLD_TITLE .. ": " .. title, state .. L.BOLD_HELP)
-    end
-    button:SetScript("OnClick", function(self)
-        local s = StatSettings(key)
-        s.bold = (not s.bold) or nil
-        OnSettingsChanged()
-        ShowHelp(self)
-    end)
-    button:SetScript("OnEnter", ShowHelp)
-    button:SetScript("OnLeave", function() GameTooltip:Hide() end)
-end
-
-local function RefreshBoldToggle(button, key, c)
-    if IsBoldEnabled(key) then
-        button.letter:SetTextColor(c.r, c.g, c.b)
-        button.letter:SetAlpha(1)
-    else
-        button.letter:SetTextColor(0.6, 0.6, 0.6)
-        button.letter:SetAlpha(0.4)
-    end
 end
 
 -- Section title with a thin line up to the right edge.
@@ -1447,10 +1234,6 @@ local function CreateOptionsFrame()
     end)
     AttachHelp(durationSwatch, L.DURATION_COLOR_TITLE, L.DURATION_COLOR_HELP)
 
-    local durationBold = CreateBoldToggle(f)
-    durationBold:SetPoint("LEFT", durationSwatch, "RIGHT", 6, 0)
-    SetupBoldToggle(durationBold, DURATION_KEY, L.DURATION_TITLE)
-
     -- 4) Tooltip background ----------------------------------------------
     CreateSection(f, L.SECTION_BACKGROUND, -188)
 
@@ -1498,7 +1281,7 @@ local function CreateOptionsFrame()
         end)
 
         local swatch = CreateSwatch(f)
-        swatch:SetPoint("TOPLEFT", x + 212, y - 2)
+        swatch:SetPoint("TOPLEFT", x + 236, y - 2)
         swatch:SetScript("OnClick", function(self, button)
             local s = StatSettings(cat.key)
             if button == "RightButton" then
@@ -1522,14 +1305,10 @@ local function CreateOptionsFrame()
         end)
         swatch:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
-        local bold = CreateBoldToggle(f)
-        bold:SetPoint("TOPLEFT", x + 236, y - 2)
-        SetupBoldToggle(bold, cat.key, cat.label)
-
-        rows[#rows + 1] = { key = cat.key, check = check, swatch = swatch, bold = bold }
+        rows[#rows + 1] = { key = cat.key, check = check, swatch = swatch }
     end
     -- The duration row is refreshed like a stat row.
-    rows[#rows + 1] = { key = DURATION_KEY, check = durationCheck, swatch = durationSwatch, bold = durationBold }
+    rows[#rows + 1] = { key = DURATION_KEY, check = durationCheck, swatch = durationSwatch }
 
     RefreshOptions = function()
         if not db then return end
@@ -1554,7 +1333,6 @@ local function CreateOptionsFrame()
             local c = EffectiveColor(row.key)
             row.check:SetChecked(on)
             row.swatch.fill:SetColorTexture(c.r, c.g, c.b, 1)
-            RefreshBoldToggle(row.bold, row.key, c)
             if on then
                 row.check.label:SetTextColor(c.r, c.g, c.b)
             else
@@ -1637,11 +1415,56 @@ end
 ------------------------------------------------------------------------
 -- Loading
 ------------------------------------------------------------------------
+local function OpenOptions()
+    if not db then return end
+    if not optionsFrame then optionsFrame = CreateOptionsFrame() end
+    optionsFrame:Show()
+    if optionsFrame.Raise then optionsFrame:Raise() end
+end
+
+-- Entry in Esc > Options > AddOns. All options live in the addon's own
+-- window, so the page only explains that and opens it.
+local function RegisterSettingsPanel()
+    local panel = CreateFrame("Frame")
+    panel.name = "StatHighlight"
+
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+    title:SetPoint("TOPLEFT", 16, -16)
+    title:SetText("StatHighlight")
+
+    local desc = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -10)
+    desc:SetJustifyH("LEFT")
+    desc:SetText(L.PANEL_DESC)
+
+    local button = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    button:SetSize(220, 26)
+    button:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -14)
+    button:SetText(L.PANEL_OPEN)
+    button:SetScript("OnClick", function()
+        -- Close the game's options so the window is not hidden behind them.
+        for _, frameName in ipairs({ "SettingsPanel", "InterfaceOptionsFrame", "GameMenuFrame" }) do
+            local frame = _G[frameName]
+            if frame and frame.IsShown and frame:IsShown() and HideUIPanel then HideUIPanel(frame) end
+        end
+        OpenOptions()
+    end)
+
+    if Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory then
+        local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+        Settings.RegisterAddOnCategory(category)
+    elseif InterfaceOptions_AddCategory then
+        InterfaceOptions_AddCategory(panel)
+    end
+end
+
 local loader = CreateFrame("Frame")
 loader:RegisterEvent("ADDON_LOADED")
 loader:SetScript("OnEvent", function(self, event, name)
     if name == ADDON_NAME then
         InitDB()
+        local ok, err = pcall(RegisterSettingsPanel)
+        if not ok and db.debug then Print("settings panel: " .. tostring(err)) end
         self:UnregisterEvent("ADDON_LOADED")
         Print(L.LOADED)
     end
@@ -1656,7 +1479,5 @@ ns.L = L
 ns.ApplyTooltipBackground = ApplyTooltipBackground
 ns.HighlightTooltip = HighlightTooltip
 ns.OnSettingsChanged = OnSettingsChanged
-ns.WrapLines = WrapLines
-ns.BoldPieces = BoldPieces
-ns.VisibleText = VisibleText
-ns.SetTextWidth = function(fn) TextWidth = fn or DefaultTextWidth end
+ns.HookFillMethods = HookFillMethods
+ns.RegisterSettingsPanel = RegisterSettingsPanel
